@@ -235,12 +235,12 @@ multi_broad_wrapper <- function(query_genes, drug_sig_list, n_cores){
 #' @export
 #'
 #' @examples
-make_permute_sort_df <- function(gctx_file, n_perm=1000, num_chunks=4, seed=NULL){
+make_permute_sort_df <- function(cids, n_perm=1000, num_chunks=4, seed=NULL){
   if(!is.null(seed)){
     set.seed(seed)
   }
   sig_df <-
-    read_gctx_ids(gctx_file, "col") %>%
+    cids %>%
     enframe %>%
     setNames(., c("idx", "sig_id"))
   perm_ids <-
@@ -272,20 +272,23 @@ make_permute_sort_df <- function(gctx_file, n_perm=1000, num_chunks=4, seed=NULL
 #' @export
 #'
 #' @examples
-get_random_cmap_scores <- function(up_genes, down_genes, gctx_file, n_perm=1000, num_chunks=4, seed=NULL, n_cores=3){
+get_random_cmap_scores <- function(up_genes, down_genes, gctx_file, cids=NULL, n_perm=1000, num_chunks=4, seed=NULL, n_cores=3){
   if(!is.null(seed)){
     set.seed(seed)
   }
   gene_ids <-
     read_gctx_meta(gctx_file) %>%
     pull(entrezgene)
+  if(is.null(cids)){
+    cids <- read_gctx_ids(gctx_file, "col")
+  }
 
   comb_genes <- c(up_genes, down_genes)
   if(!all(comb_genes %in% gene_ids)){
     stop("Not all gene signature genes are in the pert signatures.")
   }
   sorted_permute_df <-
-    make_permute_sort_df(gctx_file, n_perm = n_perm, num_chunks = num_chunks, seed = seed) %>%
+    make_permute_sort_df(cids, n_perm = n_perm, num_chunks = num_chunks, seed = seed) %>%
     split(., .$chunk_idx)
 
   cmap_scores <- map(sorted_permute_df, function(x){

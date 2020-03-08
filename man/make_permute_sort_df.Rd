@@ -4,7 +4,7 @@
 \alias{make_permute_sort_df}
 \title{Internal function to create a data.frame with the ordered permuations}
 \usage{
-make_permute_sort_df(gctx_file, n_perm = 1000, num_chunks = 4, seed = NULL)
+make_permute_sort_df(cids, n_perm = 1000, num_chunks = 4, seed = NULL)
 }
 \arguments{
 \item{n_perm}{number of permutations to perform}

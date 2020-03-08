@@ -8,6 +8,7 @@ get_random_cmap_scores(
   up_genes,
   down_genes,
   gctx_file,
+  cids = NULL,
   n_perm = 1000,
   num_chunks = 4,
   seed = NULL,
@@ -20,6 +21,8 @@ get_random_cmap_scores(
 \item{down_genes}{vector of down-regulated genes}
 
 \item{gctx_file}{gctx file}
+
+\item{cids}{signatures to parse (see \code{\link{parse.gctx}})}
 
 \item{n_cores}{number of cores}
 }
