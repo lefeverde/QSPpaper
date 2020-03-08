@@ -1,0 +1,232 @@
+---
+title: "GSVA Heatmap"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+# Loading packages and data
+## CRAN packages
+```{r}
+require(devtools)
+require(readr)
+require(dplyr)
+require(RColorBrewer)
+require(tibble)
+require()
+
+```
+
+## BioConductor packages
+See this [link](https://bioconductor.org/install/) for details of how to install these packages.
+```{r}
+require(clusterProfiler)
+require(GSVA)
+require(ComplexHeatmap)
+require(limma)
+
+
+```
+
+## My packages
+```{r}
+devtools::install_github("https://github.com/lefeverde/basicOmics")
+my_pkgs <- c("lefutils", "basicOmics", "QSPpaper")
+
+for(cur_pkg in my_pkgs){
+  if(!cur_pkg %in% row.names(installed.packages())){
+    devtools::install_github(paste0("lefeverde/", cur_pkg))
+  }
+  library(cur_pkg, character.only=TRUE)
+}
+
+
+
+```
+
+
+## Loading/pre-processing data
+```{r}
+load('data-raw/gene_annots.RData')
+
+
+
+v <-  read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
+svobj <- read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
+p <-  v$targets
+
+
+## KEGG Hierchy
+pth_data <- 
+  read_rds('../reference_files/msigdb_v7.0/msigdb_v7.0_all_tibble.rds') %>% 
+  filter(SUB_CATEGORY_CODE == "CP:KEGG") %>% 
+  dplyr::select(STANDARD_NAME,EXACT_SOURCE) %>% 
+  setNames(., c('name','id'))
+
+hier_kegg <- 
+  read_rds('data-raw/kegg_pathway_hierarchy.rds') %>% 
+  left_join(pth_data, .) %>% 
+  arrange(category_level_1)
+
+cp_kegg <- 
+  '../reference_files/msigdb_v7.0/c2_kegg_entrez_msigdb_v7.0.gmt' %>% 
+  read.gmt(.) %>% 
+  filter(ont %in% hier_kegg$name) %>% 
+  split(., .$ont) %>% 
+  lapply(., function(x){
+    x$gene
+  })
+
+
+kegg_annots <-  hier_kegg$category_level_1 %>% setNames(., hier_kegg$name)
+```
+
+
+# Creating GSVA results
+I think it makes the most sense to just do GSVA on the expression data which has the batch effects found from SVA removed, or not at all. I'm not sure how well it works with pathways, since there's so many fewer of those. 
+```{r}
+
+e_rm <- 
+  removeBatchEffect(v, covariates = svobj$sv, design = v$design)
+e_rm <- 
+  uniquefy_by_variance(e_rm, gene_annots, 'entrezgene') 
+row.names(e_rm) <- gene_annots[row.names(e_rm),]$entrezgene
+
+
+
+v_e <- uniquefy_by_variance(v$E, gene_annots, 'entrezgene')
+row.names(v_e) <- gene_annots[row.names(v_e),]$entrezgene
+
+gsva_res_sva <- 
+  gsva(e_rm, cp_kegg, method='gsva',  min.sz=1, max.sz=100000, parallel.sz=3)
+
+```
+
+# Making Heatmaps
+## Heatmap Annotation
+```{r}
+
+
+colours <- brewer.pal(n = 7, name = "Paired")
+
+annot_map <- 
+  p[,c('sex', 'diagnosis')] %>% 
+  rownames_to_column('sample_id') %>% 
+  arrange(diagnosis) %>% 
+  droplevels(.) 
+annot_map[] <- lapply(annot_map[], as.character)
+row.names(annot_map) <- annot_map$sample_id
+annot_map$sample_id <- NULL
+annot_map$sex <- NULL
+
+groups <-  
+  p[,c('group', 'diagnosis')] %>% 
+  distinct() %>%
+  dplyr::slice(-1) %>% 
+  arrange(diagnosis)
+
+col_map <- 
+  tibble(idx=sort(rep(1:3, 2)),colours=colours[1:6]) %>% 
+  split(., .$idx) %>% 
+  lapply(., function(x){
+    x$colours
+  })
+
+col_map2 <- 
+  lapply(seq_along(col_map), function(i){
+    x <- unique(groups$group)[i]
+    tmp_lvls <- groups %>% 
+      filter(group==x) %>% 
+      pull(diagnosis) %>% 
+      droplevels %>% 
+      as.character
+    
+    out_cols <- 
+      colorRampPalette(col_map[[i]])(length(tmp_lvls)) %>% 
+      setNames(., tmp_lvls)
+  }) %>% do.call(c, .)
+
+col_map <- 
+  c(NORMAL=colours[length(colours)], col_map2) %>% 
+  list(diagnosis=.)
+
+fontsize <- 10
+
+ha <- 
+  HeatmapAnnotation(df=annot_map, gap = unit(1, "mm"), col = col_map, simple_anno_size = unit(3.5, "mm"), show_annotation_name = FALSE, annotation_legend_param = create_annot_leg_params(direction = 'horizontal'), annotation_name_gp=gpar(fontsize = 14, fontface='bold'))
+
+```
+
+## Heatmap w/ Pearson & Ward clustering
+I'm not sure about how I should scale the data. If I do row based scaling, then the clusters look better me. I'm not sure that this is the correct way to do it. However, Devon gave an saying it was: \link{https://www.biostars.org/p/265066/}. So I'm going with that. Kevin mentioned that D2 instead of just D should be used, so I'm going with that \link{https://www.biostars.org/p/330204/}
+```{r}
+
+
+fn <- "gsva_msig_kegg_heatmap_category_splits.pdf"
+
+
+tmp_data <- gsva_res_sva[names(kegg_annots),row.names(annot_map)]
+# Scaling row wise
+tmp_data <-
+  t(scale(t(tmp_data)))
+tmp_data <- as.data.frame(tmp_data, check.names=FALSE)
+
+col_clust <- 
+  as.dist(1 - cor(tmp_data, method = 'pearson')) %>% 
+  hclust(., "ward.D2")
+
+tmp_ht <-
+  Heatmap(tmp_data, 
+          # Column args
+          show_column_names = FALSE, 
+          cluster_columns=col_clust,
+          # column_dend_reorder = TRUE,
+          column_split = 3,
+          # Row args 
+          cluster_rows = TRUE,
+          cluster_row_slices = TRUE,
+          show_row_names = FALSE,
+          show_row_dend = FALSE,
+          row_split = kegg_annots,
+          row_title_gp = gpar(fontsize=12, fontface="bold"),
+          row_title_rot = 0,
+          # Annotations
+
+          top_annotation  = ha,
+          # Dimensions
+          height = unit(.025*nrow(tmp_data), 'inch'),
+          width = unit(.025*ncol(tmp_data), 'inch'),
+          # Misc parameters
+          show_heatmap_legend = TRUE,
+          heatmap_legend_param =
+            list(title = "ES",
+                 just = "right",
+                 legend_width = unit(.0125*ncol(tmp_data), 'inch'), 
+                 grid_width =unit(.75, 'cm'),
+                 direction = "horizontal",
+                 title_position = "lefttop")
+          
+  )
+
+
+ht_height <- 
+    ComplexHeatmap:::height(draw(tmp_ht, heatmap_legend_side="bottom")) %>% 
+    convertUnit(., 'inch') %>% 
+    ceiling
+ht_width <- 
+    ComplexHeatmap:::width(draw(tmp_ht, heatmap_legend_side="bottom")) %>% 
+    convertUnit(., 'inch') %>% 
+    ceiling
+
+
+
+pdf(file = fn,
+    height = ht_height,
+    width = ht_width,
+    bg = "transparent")
+draw(tmp_ht, heatmap_legend_side="bottom")
+dev.off()
+
+```

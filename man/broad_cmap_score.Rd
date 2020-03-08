@@ -2,22 +2,20 @@
 % Please edit documentation in R/cmap.R
 \name{broad_cmap_score}
 \alias{broad_cmap_score}
-\title{Calculates CMAP score according to \href{https://clue.io/connectopedia/cmap_algorithms}{CLUE}}
+\title{Calculates CMAP score using the Broad's latest methodology for a single instance}
 \usage{
-broad_cmap_score(up_genes, down_genes, drug_sig_list, n_cores)
+broad_cmap_score(up_genes, down_genes, drug_sig_vec)
 }
 \arguments{
 \item{up_genes}{vector of up-regulated genes}
 
 \item{down_genes}{vector of down-regulated genes}
 
-\item{drug_sig_list}{list of drug signatures}
-
-\item{n_cores}{number of cores}
+\item{drug_sig_vec}{drug signature vector}
 }
 \value{
 
 }
 \description{
-Calculates CMAP score according to \href{https://clue.io/connectopedia/cmap_algorithms}{CLUE}
+This function calculates the CMAP score according to the method outlined  \code{\href{https://clue.io/connectopedia/cmap_algorithms}{here}} for a single instance of upregulated-genes, down-regulated genes and drug-signature
 }
