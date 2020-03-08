@@ -125,7 +125,7 @@ multi_broad_wrapper <- function(query_genes, drug_sig_list, n_cores){
         str_split(., ';') %>%
         unlist
       tmp_res <-
-        broad_cmap_score(up_genes, down_genes, drug_sig_list, n_cores) %>%
+        single_broad_wrapper(up_genes, down_genes, drug_sig_list, n_cores) %>%
         cbind(nm, .)
     }) %>% do.call(rbind, .)
   return(cmap_gsea_res)

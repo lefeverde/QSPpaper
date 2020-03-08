@@ -10,7 +10,8 @@ get_random_cmap_scores(
   gctx_file,
   n_perm = 1000,
   num_chunks = 4,
-  seed = NULL
+  seed = NULL,
+  n_cores = 3
 )
 }
 \arguments{
@@ -19,6 +20,8 @@ get_random_cmap_scores(
 \item{down_genes}{vector of down-regulated genes}
 
 \item{gctx_file}{gctx file}
+
+\item{n_cores}{number of cores}
 }
 \value{
 
