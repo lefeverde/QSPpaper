@@ -277,8 +277,7 @@ get_random_cmap_scores <- function(up_genes, down_genes, gctx_file, cids=NULL, n
     set.seed(seed)
   }
   gene_ids <-
-    read_gctx_meta(gctx_file) %>%
-    pull(entrezgene)
+    read_gctx_ids(gctx_file, "row")
   if(is.null(cids)){
     cids <- read_gctx_ids(gctx_file, "col")
   }
