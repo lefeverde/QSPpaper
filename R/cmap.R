@@ -312,7 +312,7 @@ get_random_cmap_scores <- function(up_genes, down_genes, gctx_file, cids=NULL, n
           random_genes[!random_genes %in% r_up_genes]
         cs <- broad_cmap_score(r_up_genes, r_down_genes, pert_vec)
       }) %>% bind_rows
-    }) %>% bind_rows
+    }, mc.cores = n_cores) %>% bind_rows
   }) %>% bind_rows
   # Binds everything into a single df
   return(cmap_scores)
