@@ -18,6 +18,8 @@ chunker <- function(x, num_chunks=3){
 #' @param group_col  column with duplicates
 #' @param val_col column of unique values
 #'
+#' @importFrom basicOmics uniquefy_by_abs_max
+#'
 #' @return a uniquefyd results data.frame
 #' @export
 #'
@@ -28,6 +30,6 @@ uniquefy_res_by_group <- function(res_df, group_col='external_gene_name', val_co
   tmp_res <- tmp_res %>%
     group_by(., coefficient) %>%
     do(.,
-       basicOmics::uniquefy_by_abs_max(., group_col, val_col))
+       uniquefy_by_abs_max(., group_col, val_col))
   return(tmp_res)
 }

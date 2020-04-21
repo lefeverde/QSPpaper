@@ -18,7 +18,9 @@ Imports:
     clusterProfiler,
     cmapR,
     fgsea,
-    stringr
+    stringr,
+    basicOmics,
+    cowplot
 Depends: 
     dplyr,
     tibble,
