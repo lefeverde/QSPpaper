@@ -21,12 +21,17 @@ create_gsea_plot_data <- function(query_idx, ordered_vec, gsea_weight=0){
     sign(ordered_vec)*(abs(ordered_vec)**gsea_weight)
   es <-
     calcGseaStat(ordered_vec, query_idx, returnAllExtremes = TRUE)
-
   n <- length(ordered_vec)
   xs <- as.vector(rbind(query_idx - 1, query_idx))
   ys <- as.vector(rbind(es$bottoms, es$tops))
+  plot_tick <- rep_len(c(TRUE, FALSE), length(xs))
+  # Prevents origin and end from getting a tick
+  plot_tick <- c(FALSE, plot_tick, FALSE)
   toPlot <-
-    data.frame(x = c(0, xs, n + 1), y = c(0, ys, 0))
+    data.frame(x = c(0, xs, n + 1),
+               y = c(0, ys, 0),
+               plot_tick)
+
   return(toPlot)
 }
 

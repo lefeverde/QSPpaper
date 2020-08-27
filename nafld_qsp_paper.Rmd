@@ -429,7 +429,7 @@ fit <-
 res <- get_limma_results(fit, group_cont)
 # saveRDS(res, "gene_res_from_clusters.rds")
 ```
-## Creating GS
+## Creating gene sets
 ```{r}
 cols_to_keep <- c("coefficient", "external_gene_name", "entrezgene", "logFC", "adj.P.Val")
 gene_res <- read_rds('gene_res_from_clusters.rds') %>% 
@@ -458,5 +458,6 @@ names(degs_out_pth)[1] <- "Clusters"
 
 degs_out_pth <- degs_out_pth %>% filter(gene_adj.P.Val < .05)
 # write_csv(degs_out_pth, "degs_from_selected_pathways_20200122.csv")
-```
 
+
+```
