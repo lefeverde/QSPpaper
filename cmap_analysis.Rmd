@@ -31,12 +31,13 @@ require(limma)
 
 ## My packages and other github packages 
 ```{r}
-devtools::install_github("https://github.com/lefeverde/basicOmics")
+
 my_pkgs <- c("lefutils","lefplots", "basicOmics", "QSPpaper")
 
 for(cur_pkg in my_pkgs){
   if(!cur_pkg %in% row.names(installed.packages())){
     devtools::install_github(paste0("lefeverde/", cur_pkg))
+    print(cur_pkg)
   }
   library(cur_pkg, character.only=TRUE)
 }
@@ -68,8 +69,10 @@ drug_vec_list <- gctx_to_sigList(test_gctx, cids)
 cmap_res <- single_broad_wrapper(up_genes, down_genes, drug_vec_list, 2)
 
 ```
-## Pre-processing the data the LINCS L1000 
-The following chunks show I wrangled the LINCS data to get in a format that is a bit smaller, and works with my scripts. I use the [CMap Query Speedup Challenge](https://clue.io/data/CT#CT_QSPD) data, since it has already been processed so that each row is a unique gene mapped to the entrezgene ID. The metadata file can be obtained from [GEO](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE70138). To make things more convenient, I've combined the different metadata files into a single file.  
+
+## Pre-processing the data the LINCS L1000 {#pre-process}
+The following chunks show I wrangled the LINCS data to get in a format that is a bit smaller, and works with my scripts. I use the [CMap Query Speedup Challenge](https://clue.io/data/CT#CT_QSPD) data, since it has already been processed so that each row is a unique gene mapped to the entrezgene ID. The metadata file can be obtained from [GEO](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE70138). To make things more convenient, I've combined the different metadata files into a single file. The file `sig_score_n476251x10174.csv` is not included but can be obtained from LINCS. 
+
 ```{r}
 
 library(cmapR)
@@ -96,6 +99,7 @@ sig_scores_sub <- sig_scores[,cols_to_keep]
 ```
 
 ## Subsetting LINCS dataset
+This was how the analysis was done in the actual paper, but again the `sig_score_trt_cp_n204975x10174.gctx` file was not included due to size and potential license issues (see [previous chunk]({#pre-process})). 
 ```{r}
 
 trt_cp <- 
@@ -103,8 +107,9 @@ trt_cp <-
   filter(pert_type == "trt_cp") %>% 
   distinct %>% 
   dplyr::select(one_of("pert_id", "sig_id"))
+
 drgbnk_db <- 
-  readRDS('data/pert_overlap_cmap_drugbank_stitch.rds')
+  readRDS('data/pert_overlap_cmap_drugbank_stitch.rds') # File mapping the perturbations to DrugBank and STITCH ids. 
 drgbnk_db$stitch_name <- NULL
 drgbnk_db$pubchem_cid <- NULL
 drgbnk_db <- 
@@ -120,19 +125,19 @@ cids = cids[cids %in% drug_meta$sig_id]
 cid_chunks <- chunker(cids, 10)
 
 ```
+
 ## Creating aggregate gene sets
 ```{r}
 
-library(lefutils)
+
+
 
 pth_info <- 
   read_delim("data/NAFLD_progression2path.txt", 
              "\t",
              col_names = FALSE) %>% 
-  set_names(., c("nafld_category", "id"))
+  setNames(., c("nafld_category", "id"))
 
-pths_to_keep <- 
-  pth_info %>% filter(nafld_category %in% 1:4)
 
 kegg_db <- 
   read_rds("data/c2_kegg_entrez_msigdb_v7.0_database.rds") %>% 
@@ -211,6 +216,8 @@ cmap_res <- seq_along(deg_setlists) %>%
   }) 
 names(cmap_res) <- names(deg_setlists)
 # saveRDS(cmap_res, 'cmap_DEGs_from_pathway_clusters_res.rds')
+
+
 ```
 
 # Creating Supplementary data file 2. all predicted drugs
@@ -355,22 +362,19 @@ drugs <- sub_res %>%
   arrange(cmap_score, .by_group=TRUE) %>% 
   mutate(drug_idx=row_number()) 
 
-
-
 t10_drugs <- drugs %>% 
   dplyr::slice(1:10) %>% 
   ungroup %>% 
   group_by(drugbank_id) %>% 
   mutate(drug_freq=n(), ave_rank=mean(drug_idx)) %>% 
-  ungroup()
+  ungroup
+
 dbid_order <- t10_drugs %>% 
   select(drugbank_id, drug_freq, ave_rank) %>% 
   distinct %>% 
   arrange(desc(drug_freq), ave_rank) %>% 
   pull(drugbank_id)
 t10_drugs$drugbank_id <- factor(t10_drugs$drugbank_id, levels = dbid_order)
-
-
 
 chemicals <- sub_res %>%
   filter(str_detect(groups, "approved", negate = TRUE)) %>% 
@@ -467,6 +471,7 @@ pths <- fen_data[,c(1,2,7,8)] %>%
 tmp_top10_res <- top10_res[,c(1:6, 12:13)]
 
 ```
+
 ## Highlighted drugs
 ```{r}
 

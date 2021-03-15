@@ -1,6 +1,5 @@
 ---
-title: Analysis notebook for A Quantitative Systems Pharmacology (QSP) Approach to
-  Repurposing Drugs for Non-Alcoholic Fatty Liver Disease (NAFLD)
+title: Analysis code used for the QSP NAFLD paper
 output:
   pdf_document: default
   html_notebook: default
@@ -9,7 +8,6 @@ output:
 editor_options:
   chunk_output_type: console
 ---
-
 
 # Introduction
 This code is the analysis portion of the paper. Intermediate data files are stored throughout the notebook as commented out `RDS` files. These are typically saved when creating the intermediate data is both/or time consuming or used at branch points within the analysis. Some of the code chunks rely on functions from my personal packages which are not on `CRAN` or `BioConductor` installed from github.
@@ -27,22 +25,40 @@ require(devtools)
 # My package(s)
 my_pkgs <- c("lefutils", "basicOmics")
 
-if(any(my_pkgs %in% row.names(installed.packages()))){
+if(!any(my_pkgs %in% row.names(installed.packages()))){
  devtools::install_github(paste0("lefeverde/", my_pkgs))
 }
 
 ```
+## Loading required packages
+```{r}
+require(tidyverse)
+require(biomaRt)
+require(matrixStats)
+require(edgeR)
+require(reshape2)
+require(ggplot2)
+require(lefutils)
+require(basicOmics)
+require(edgeR)
+require(limma)
+require(sva)
+require(GSVA)
+require(dendextend)
+
+```
+
+
 
 # Pre-processing pipeline
 ## Creating gene metadata
 ```{r}
-require(tidyverse)
-require(biomaRt)
+
 gene_dir <- 'data-raw/DiStefano_raw_data/kallisto/'
 
 # Getting ENS ids from 1st tsv
 ens_trans <- 
-  paste0(gene_dir,list.files(gene_dir)[[1]]) %>% 
+  paste0(gene_dir, list.files(gene_dir)[[1]]) %>% 
   read_delim(., "\t") %>% 
   pull(target_id) %>% 
   str_split(., "\\.") %>% 
@@ -55,7 +71,7 @@ attributes <- c("ensembl_gene_id", "ensembl_transcript_id")
 
 ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl", version=94)
 
-new_tx2gene <-  getBM(attributes, "ensembl_transcript_id", ens_trans, ensembl)
+tx2gene <-  getBM(attributes, "ensembl_transcript_id", ens_trans, ensembl)
 
 
 attributes <- c("ensembl_gene_id",
@@ -63,17 +79,15 @@ attributes <- c("ensembl_gene_id",
                 "gene_biotype",
                 "description")
 
-ens_genes <- unique(new_tx2gene$ensembl_gene_id)
-new_gene_annots <- getBM(attributes, "ensembl_gene_id", ens_genes, ensembl)
+ens_genes <- unique(tx2gene$ensembl_gene_id)
+gene_annots <- getBM(attributes, "ensembl_gene_id", ens_genes, ensembl)
+#save(gene_annots, file = "gene_annots.RData")
 
 ```
 
 ## Identifying mis-labeled samples 
 ```{r}
-library(matrixStats)
-library(edgeR)
-library(reshape2)
-library(ggplot2)
+
 
 sex_linked_genes <- c('ENSG00000131002', 'ENSG00000183878', 'ENSG00000067048')
 
@@ -97,8 +111,8 @@ plot_data <-
 
 
 ## Sex is incorrect for some samples 
-
 Since this gene is Y-linked, I expect the males to have much higher expression than the females. I think the non-zero expression in the females can be attributed to multi-mapping reads. Kallisto does mapping a little differently, and so these are not discarded by default like with STAR and HISAT2.
+
 ```{r}
 female_cutoff <-  plot_data %>%
   dplyr::filter(., sex =='Female') %>%
@@ -122,6 +136,7 @@ suspicious_samples <- list(
   do.call(c, .)
 
 ```
+
 ## Creating new subsetted txi 
 ```{r}
 suspicious_samples <- 
@@ -143,88 +158,17 @@ txi <- tximport(files, type = 'kallisto', tx2gene = tx2gene, ignoreTxVersion = T
 
 ```
 
-# DEG analysis
-## Required packages and setup
 
+# Preliminary data cleaning and analysis 
+
+
+## Creating cleaned expression matrix object and running SVA
 ```{r}
 
-require(lefutils)
-require(basicOmics)
-require(edgeR)
-require(limma)
-require(sva)
-
-
-
-
-```
-
-
-## LIMMA-VOOM w/quantile normalization and SVA
-### Disease group
-
-```{r}
 load('data-raw/gene_annots.RData')
 txi_list <- readRDS('DiStefano_txi_and_p_182.rds')
 p <- txi_list[[1]]
 txi <- txi_list[[2]]
-
-group_cont <-  c('STEATOSIS-NORMAL', 'Lob-NORMAL', 'Lob-STEATOSIS', 'Fibrosis-NORMAL', 'Fibrosis-STEATOSIS', 'Fibrosis-Lob', '(STEATOSIS+Lob)-NORMAL', '(Fibrosis+Lob)-NORMAL', '(Fibrosis+Lob)-(NORMAL+STEATOSIS)')
-
-mod <- basicOmics::better_model_matrix(~0 + group, data=p)
-mod0 <- model.matrix(~1, data=p )
-dge <- edgeR::DGEList(counts =  txi$counts, 
-                      samples = p,
-                      genes = gene_annots[row.names(txi$counts),])
-
-dge <- dge[edgeR::filterByExpr(dge, group = dge$samples$diagnosis),]
-dge <- dge[(rowSums(dge$counts > 1) >= .75*dim(dge)[2]),]
-dge <- dge[!is.na(dge$genes$entrezgene),]
-
-v <- voom(dge, mod, normalize.method = 'quantile')
-svobj <- sva(v$E, mod=mod, mod0=mod0)
-# saveRDS(list(v, svobj), 'DiStefano_group_n182_voom_qn_and_svobj.rds')
-modSV <- cbind(mod, svobj$sv)
-fit <- make_cont_fit(v, group_cont, modSV)
-# saveRDS(fit, 'DiStefano_group_n182_qn_sva_fit.rds')
-
-res <- get_limma_results(fit, group_cont)
-# saveRDS(res, file = 'DiStefano_group_n182_qn_sva_res.rds')
-res$coefficient <- gsub('-', '_vs_', res$coefficient)
-
-sigsub <- res[res$adj.P.Val < .05,] 
-
-
-```
-
-### Disease stage
-
-```{r}
-library(sva)
-load('data-raw/gene_annots.RData')
-txi_list <- readRDS('DiStefano_txi_and_p_182.rds')
-p <- txi_list[[1]]
-txi <- txi_list[[2]]
-diagnosis_levels <- levels(p$diagnosis)
-# Comparing diagnosis progression
-group_cont <- 
-  paste0(diagnosis_levels[-1],
-         '-',
-         diagnosis_levels[1:(length(diagnosis_levels)- 1)])
-# Comparing everything to normal
-group_cont <- 
-  c(group_cont, 
-    paste0(diagnosis_levels[-1], '-', 'NORMAL'))
-# Comparing fib to lob 1
-group_cont <- 
-  c(group_cont,
-    paste0(diagnosis_levels[6:8], '-', "Lob_Inflam_1"))
-# Comparing to fib to steatosis 
-group_cont <- 
-  c(group_cont,
-    paste0(diagnosis_levels[6:8], '-', "STEATOSIS_2"),
-    paste0(diagnosis_levels[6:8], '-', "STEATOSIS_3"))
-
 
 mod <- basicOmics::better_model_matrix(~0 + diagnosis, data=p)
 mod0 <- model.matrix(~1, data=p )
@@ -238,75 +182,36 @@ dge <- dge[!is.na(dge$genes$entrezgene),]
 
 v <- voom(dge, mod, normalize.method = 'quantile')
 svobj <- sva(v$E, mod=mod, mod0=mod0)
-# saveRDS(list(v, svobj), 'DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')
-modSV <- cbind(mod, svobj$sv)
-fit <- make_cont_fit(v, group_cont, modSV)
-# saveRDS(fit, 'DiStefano_diagnosis_n182_qn_sva_fit.rds')
-res <- get_limma_results(fit, unique(group_cont))
-# saveRDS(res, file = 'DiStefano_diagnosis_n182_qn_sva_res.rds')
-sigsub <- res[res$adj.P.Val < .05,] 
+# saveRDS(list(v, svobj), 'data/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')
 
 ```
 
-# GSEA pathway analysis
-## Required packages and setup
-```{r}
-require(lefutils)
-require(basicOmics)
-require(clusterProfiler)
-
-```
-
-## GSEA with genes ranked by moderated t-statistic 
-### Disease group
-
-```{r}
-n_perm <- 10000
-
-gsea_list <- kegg_gsea_by_coef(read_rds('DiStefano_group_n182_qn_sva_res.rds'), nPerm = n_perm)
-gsea_df <- lapply(gsea_list, data.frame) %>% 
-  rbind_named_df_list(., 'coefficient') %>% 
-  filter(p.adjust < .05)
-
-fn <-  paste0('group_kegg_gsea_nperm', n_perm, '_res.rds')
-# saveRDS(gsea_df, fn)
-
-```
-### Disease stage
-```{r}
-n_perm <- 10000
-
-gsea_list <- kegg_gsea_by_coef(read_rds('DiStefano_diagnosis_n182_qn_sva_res.rds'), nPerm = n_perm)
-gsea_df <- lapply(gsea_list, data.frame) %>% 
-  rbind_named_df_list(., 'coefficient') %>% 
-  filter(p.adjust < .05)
-
-fn <-  paste0('diagnosis_kegg_gsea_nperm', n_perm, '_res.rds')
-saveRDS(gsea_df, fn)
-
-```
 
 # GSVA pathway cluster analysis
 ## Loading KEGG metadata
+These files are not going to be included because of licensing issues with KEGG. The MSigDB pathways can be found at this [link](https://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/MSigDB_v7.0_Release_Notes).
 
 ```{r}
-## KEGG Hierchy
+
+# This file might be able to be included
 pth_data <- 
   read_rds('../reference_files/msigdb_v7.0/msigdb_v7.0_all_tibble.rds') %>% 
   filter(SUB_CATEGORY_CODE == "CP:KEGG") %>% 
   dplyr::select(STANDARD_NAME,EXACT_SOURCE) %>% 
   setNames(., c('name','id')) 
 
+# I'm pretty sure this file won't be allowed at all (due to KEGG licensce)
 hier_kegg <- 
-  read_rds('data-raw/kegg_pathway_hierarchy.rds') %>% 
+  read_rds('../thesisAnalysis/data-raw/kegg_pathway_hierarchy.rds') %>% 
   left_join(pth_data, .) %>% 
   arrange(category_level_1)
 
+# Same with this file but it can be obtained following the link provided above 
 cp_kegg <- 
   '../reference_files/msigdb_v7.0/c2_kegg_entrez_msigdb_v7.0.gmt' %>% 
-  read.gmt(.) %>% 
-  filter(ont %in% hier_kegg$name) %>% 
-  split(., .$ont) %>% 
+  clusterProfiler::read.gmt(.) %>% 
+  filter(term %in% hier_kegg$name) %>% 
+  split(., .$term) %>% 
   lapply(., function(x){
     x$gene
   })
@@ -319,11 +224,13 @@ kegg_annots <-
 ```
 
 ## Loading and pre-processing gene expression data 
-```{r}
-load('data-raw/gene_annots.RData')
+Since I'm going run GSVA, I'm removing the batch effects predicted by SVA instead of including them in the downstream deferentially enriched pathway analysis. This is because the SVA matrix will be the wrong size. I'm also uniquefying the genes by variance. In other words, of the genes which match to the same entrez gene ID, I'm choosing the one that has the most variance.
 
-v <-  read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
-svobj <- read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
+```{r}
+load('data/gene_annots.RData')
+
+v <-  read_rds('data/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
+svobj <- read_rds('data/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
 p <-  v$targets
 
 e_rm <- 
@@ -340,8 +247,11 @@ row.names(v_e) <- gene_annots[row.names(v_e),]$entrezgene
 
 ```
 
-## Clustering the GSVA data 
+## Running GSVA and Clustering the output
+I'm converting the gene x patient expression matrix into a pathway x patient enrichment matrix via [GSVA](https://www.bioconductor.org/packages/release/bioc/html/GSVA.html). I then perform a clustering analysis on the pathway x patient enrichment matrix. 
+
 ```{r}
+
 gsva_res_sva <- 
   gsva(e_rm, cp_kegg, method='gsva',  min.sz=1, max.sz=100000, parallel.sz=3)
 
@@ -360,10 +270,73 @@ col_clust <-
 
 
 ```
+
+### Showing a dendrogram of the results
+This chunk just creates a dendrogram of the clustering, like the one in figure 2. First, I create a color map of the different diagnoses, then the actual plot itself
+
+```{r}
+
+library(RColorBrewer)
+colours <- brewer.pal(n = 7, name = "Paired")
+
+# Ok so creating the color map was a bit involved. I started with 
+# a palette of discrete colors, 2 for each group (e.g., Fibrosis)
+# and then interpolated them so that I had darker colors for the 
+# advanced grade/stage within each group.
+
+groups <-  
+  p[,c('group', 'diagnosis')] %>% 
+  distinct() %>%
+  dplyr::slice(-1) %>% 
+  arrange(diagnosis)
+
+col_map <- 
+  tibble(idx=sort(rep(1:3, 2)),colours=colours[1:6]) %>% 
+  split(., .$idx) %>% 
+  lapply(., function(x){
+    x$colours
+  })
+
+col_map2 <- 
+  lapply(seq_along(col_map), function(i){
+    x <- unique(groups$group)[i]
+    tmp_lvls <- groups %>% 
+      filter(group==x) %>% 
+      pull(diagnosis) %>% 
+      droplevels %>% 
+      as.character
+    
+    out_cols <- 
+      colorRampPalette(col_map[[i]])(length(tmp_lvls)) %>% 
+      setNames(., tmp_lvls)
+  }) %>% do.call(c, .)
+
+col_map <- 
+  c(NORMAL=colours[length(colours)], col_map2) 
+
+# Getting the diagnosis for the labels in the dendrogram 
+ordered_colors <- annot_map$diagnosis[match(labels(col_clust), annot_map$sample_id)]
+ordered_colors <- col_map[ordered_colors]
+
+dend <- as.dendrogram(col_clust)
+labels_colors(dend) <- ordered_colors
+
+# Finally, the plot
+par(cex=.5)
+plot.new()
+plot(dend)
+
+
+```
+
+
 ## Creating new groups based on clustering
+I'm cutting the dendogram at the 3rd level, since 3 distinct clusters naturally form (see figure 2 and previous section). This is used to create new groupings of the samples (see methods section of paper).
+
 Apparently the default `cutree` will sort the clusters by number of items in each cluster. This is different than `ComplexHeatmap`. The `dendextend` version has an option to turn this "feature" off. To do this, set the confusingly named argument `order_clusters_as_data` to `FALSE`. 
 
 ```{r}
+
 coefs_from_clusters <- 
   dendextend::cutree(col_clust, 3, order_clusters_as_data=FALSE) %>% 
   enframe %>% 
@@ -376,22 +349,10 @@ row.names(coefs_from_clusters) <- coefs_from_clusters$sample_id
 coefs_from_clusters$sample_id <- NULL
 lvls <- levels(coefs_from_clusters$cluster_idx)
 
-group_cont <- 
-  lapply(seq_along(lvls), function(i){
-    x <- lvls[i]
-    y <- 
-      paste(lvls[-i], collapse = '+') %>%
-      # paste(lvls, collapse = '+') %>% 
-      paste0("(", ., ")/", length(lvls[-i]))
-      # paste0("(", ., ")/", length(lvls))
-    paste0(x, '-', y)
-  }) %>% unlist
-
-
 ```
 
-# Creating gene signatures (GS)
-## DRP analysis
+## Running LIMMA-VOOM using the new groupings
+### Identifying differentially enriched pathways 
 ```{r}
 
 group_cont <- c("c2-c1", "c3-c1", "c3-c2")
@@ -402,25 +363,21 @@ mod <-
 cont_mod <- 
   makeContrasts(contrasts = group_cont, levels=data.frame(mod, check.names = FALSE))
 
-fit <-  
-  t(scale(t(gsva_res_sva))) %>% 
-  lmFit(., data.frame(mod)) # Row scaling
-
-fit <- fit %>% 
+fit <-  t(scale(t(gsva_res_sva))) %>% # Row scaling
+  lmFit(., data.frame(mod)) %>% 
   contrasts.fit(., cont_mod) %>% 
   eBayes
 
+
 res <- get_limma_results(fit, group_cont)
 names(res)[2] <- 'name'
-res <- 
-  right_join(pth_data, res) %>% 
-  right_join(hier_kegg, .)
-res <- cbind(coefficient=res$coefficient, res[,-7])
+res <- right_join( hier_kegg, res)
+
 # saveRDS(res, 'lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds')
 
 ```
 
-## DEG analysis
+### Identifying differentially expressed genes
 ```{r}
 fit <-   
   lmFit(v, data.frame(mod)) %>% 
@@ -429,36 +386,16 @@ fit <-
 
 res <- get_limma_results(fit, group_cont)
 # saveRDS(res, "gene_res_from_clusters.rds")
+
 ```
-## Creating gene sets
+
+# Creating gene signatures 
 ```{r}
-cols_to_keep <- c("coefficient", "external_gene_name", "entrezgene", "logFC", "adj.P.Val")
-gene_res <- read_rds('gene_res_from_clusters.rds') %>% 
-  dplyr::select(cols_to_keep) %>% 
-  distinct
-gene_res$entrezgene <- as.character(gene_res$entrezgene)
 
-sig_pth_res <- read_rds("lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
-  filter(adj.P.Val < .05) %>%
-  dplyr::select(one_of("coefficient","id","logFC", "adj.P.Val")) %>%
-  distinct %>% 
-  right_join( hier_kegg, .)
-
-sig_gene_res <- gene_res %>% 
-  filter(adj.P.Val < .05)
-
-pth_gene_res <- 
-  inner_join(kegg_df, gene_res) 
-coefficient <- pth_gene_res$coefficient
-pth_gene_res <- pth_gene_res[,-3]
-pth_gene_res <- cbind(coefficient, pth_gene_res)
-colnames(pth_gene_res)[5:6] <-  paste0("gene_", colnames(pth_gene_res)[5:6])
-
-degs_out_pth <- left_join(fens_pathways, pth_gene_res)
-names(degs_out_pth)[1] <- "Clusters"
-
-degs_out_pth <- degs_out_pth %>% filter(gene_adj.P.Val < .05)
-# write_csv(degs_out_pth, "degs_from_selected_pathways_20200122.csv")
 
 
 ```
+
+
+
+
