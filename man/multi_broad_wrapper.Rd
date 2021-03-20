@@ -15,5 +15,5 @@ multi_broad_wrapper(query_genes, drug_sig_list, n_cores)
 
 }
 \description{
-Wrapper to run the \code{\link{broad_cmap_score}} for many gene sets
+TODO Add more on the required input data format for gene signatures
 }

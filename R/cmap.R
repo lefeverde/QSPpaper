@@ -60,17 +60,17 @@ broad_cmap_score <- function(up_genes, down_genes, drug_sig_vec){
   es_up <- calcGseaStat(drug_sig_vec, up_gene_idx)
   es_down <- calcGseaStat(drug_sig_vec, down_gene_idx)
   if(sign(es_up) == sign(es_down)){
-    es <- 0
+    cmap_score <- 0
   } else {
-    es <- (es_up - es_down)/2
+    cmap_score <- (es_up - es_down)/2
   }
-  out_df <- tibble(es_up, es_down, cmap_score=es)
+  out_df <- tibble(es_up, es_down, cmap_score)
   return(out_df)
 }
 
 #' Wrapper to run the \code{\link{broad_cmap_score}} for a single gene set
 #'
-#' This wrapper gets the CMAP scores for a single up and down-regulated gene set accross  all drug signatures
+#' This wrapper gets the CMAP scores for a single up and down-regulated gene set across  all drug signatures
 #'
 #' @param up_genes vector of up-regulated genes
 #' @param down_genes vector of down-regulated genes
@@ -95,12 +95,17 @@ single_broad_wrapper <- function(up_genes, down_genes, drug_sig_list, n_cores){
   },
   mc.cores = n_cores) %>%
     bind_rows
+  up_genes <- paste(up_genes, collapse = ';')
+  down_genes <- paste(down_genes, collapse = ';')
+  es_list <- cbind(up_genes, down_genes, es_list)
   return(es_list)
 }
 
 
 
 #' Wrapper to run the \code{\link{broad_cmap_score}} for many gene sets
+#'
+#' TODO Add more on the required input data format for gene signatures
 #'
 #' @param query_genes data.frame of gene signatures
 #' @inheritParams broad_cmap_score
