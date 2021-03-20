@@ -316,6 +316,11 @@ get_random_cmap_scores <- function(up_genes, down_genes, gctx_file, cids=NULL, n
         r_down_genes <-
           random_genes[!random_genes %in% r_up_genes]
         cs <- broad_cmap_score(r_up_genes, r_down_genes, pert_vec)
+        # Adds in the random gene signature not sure if this is
+        # a good idea or not.
+        r_up_genes <- paste(r_up_genes, collapse = ';')
+        r_down_genes <- paste(r_down_genes, collapse = ';')
+        cs <- cbind(r_up_genes, r_down_genes, cs)
       }) %>% bind_rows
     }, mc.cores = n_cores) %>% bind_rows
   }) %>% bind_rows

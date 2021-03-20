@@ -19,5 +19,5 @@ single_broad_wrapper(up_genes, down_genes, drug_sig_list, n_cores)
 
 }
 \description{
-This wrapper gets the CMAP scores for a single up and down-regulated gene set accross  all drug signatures
+This wrapper gets the CMAP scores for a single up and down-regulated gene set across  all drug signatures
 }
