@@ -40,7 +40,7 @@ require(reshape2)
 require(ggplot2)
 require(lefutils)
 require(basicOmics)
-require(edgeR)
+
 require(limma)
 require(sva)
 require(GSVA)
@@ -182,7 +182,7 @@ dge <- dge[!is.na(dge$genes$entrezgene),]
 
 v <- voom(dge, mod, normalize.method = 'quantile')
 svobj <- sva(v$E, mod=mod, mod0=mod0)
-# saveRDS(list(v, svobj), 'data/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')
+# saveRDS(list(v, svobj), 'data_raw/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')
 
 ```
 
@@ -199,6 +199,10 @@ pth_data <-
   filter(SUB_CATEGORY_CODE == "CP:KEGG") %>% 
   dplyr::select(STANDARD_NAME,EXACT_SOURCE) %>% 
   setNames(., c('name','id')) 
+
+# These pathways were causing issues and so they've been removed from the analysis
+pths_to_remove <- c("KEGG_TAURINE_AND_HYPOTAURINE_METABOLISM", "KEGG_FOLATE_BIOSYNTHESIS")
+pth_data <- pth_data %>% filter(!name %in% pths_to_remove)
 
 # I'm pretty sure this file won't be allowed at all (due to KEGG licensce)
 hier_kegg <- 
@@ -227,10 +231,10 @@ kegg_annots <-
 Since I'm going run GSVA, I'm removing the batch effects predicted by SVA instead of including them in the downstream deferentially enriched pathway analysis. This is because the SVA matrix will be the wrong size. I'm also uniquefying the genes by variance. In other words, of the genes which match to the same entrez gene ID, I'm choosing the one that has the most variance.
 
 ```{r}
-load('data/gene_annots.RData')
+load('data_raw/gene_annots.RData')
 
-v <-  read_rds('data/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
-svobj <- read_rds('data/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
+v <-  read_rds('data_raw/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
+svobj <- read_rds('data_raw/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
 p <-  v$targets
 
 e_rm <- 
@@ -315,7 +319,7 @@ col_map <-
   c(NORMAL=colours[length(colours)], col_map2) 
 
 # Getting the diagnosis for the labels in the dendrogram 
-ordered_colors <- annot_map$diagnosis[match(labels(col_clust), annot_map$sample_id)]
+ordered_colors <- p$diagnosis[match(labels(col_clust), row.names(p))]
 ordered_colors <- col_map[ordered_colors]
 
 dend <- as.dendrogram(col_clust)
@@ -390,12 +394,168 @@ res <- get_limma_results(fit, group_cont)
 ```
 
 # Creating gene signatures 
-```{r}
+## Loading and prepping the requisite data
 
+```{r}
+cat_pths <- 
+  read_delim("data_raw/NAFLD_progression2path_03-09-2021.txt", 
+             "\t",
+             col_names = FALSE) %>% 
+  set_names(., c("nafld_category", "id"))
+
+kegg_db <- 
+  read_rds("data_raw/c2_kegg_entrez_msigdb_v7.0_database.rds") %>% 
+  separate_rows(entrezgene, sep = '\\|') %>% 
+  select(name, id, entrezgene)
+
+sig_pth_res <- 
+  read_rds("data_raw/lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
+  filter(adj.P.Val < .001)
+
+cols_to_keep <- c("coefficient","name","id", "logFC", "adj.P.Val" )
+sig_pth_res <- sig_pth_res[,cols_to_keep]
+
+names(sig_pth_res)[4:5] <- paste0("pathway_", names(sig_pth_res)[4:5])
+
+pths_to_keep <- cat_pths %>% filter(nafld_category %in% 1:4) %>% pull(id)
+sig_pth_res <- sig_pth_res %>% filter(id %in% pths_to_keep)
+sig_pth_res <- inner_join(sig_pth_res, cat_pths)
+sig_pth_res <- inner_join(sig_pth_res, kegg_db)
+
+gene_res <- read_rds('data_raw/gene_res_from_clusters.rds') %>% 
+  # filter(adj.P.Val < .05)
+  filter(adj.P.Val < .001)
+gene_res$entrezgene <- as.character(gene_res$entrezgene)
+
+cols_to_keep <- c("coefficient","external_gene_name", "entrezgene", "logFC", "adj.P.Val")
+gene_res <- gene_res[,cols_to_keep]
+names(gene_res)[4:5] <- paste0("gene_", names(gene_res)[4:5])
+
+gene_pth_filt <- inner_join(gene_res, sig_pth_res)
 
 
 ```
 
 
+## Creating the gene sigantures 
+```{r}
 
+upreg_genes <- gene_pth_filt %>% 
+  filter(gene_logFC > 0) %>% 
+  group_by(coefficient, nafld_category) %>% 
+  summarise(up_genes_entrez=paste(unique(entrezgene), collapse = ";"),
+            n_upreg=length(unique(entrezgene)))
+  
+
+downreg_genes <- gene_pth_filt %>% 
+  filter(gene_logFC < 0) %>% 
+  group_by(coefficient, nafld_category) %>% 
+  summarise(down_genes_entrez=paste(unique(entrezgene), collapse = ";"),
+            n_downreg=length(unique(entrezgene)))
+
+unweighted_gene_sig <- 
+  left_join(upreg_genes, downreg_genes) %>% 
+  arrange(coefficient, nafld_category) %>% 
+  ungroup
+unweighted_gene_sig$sig_idx <- 1:12
+unweighted_gene_sig <- unweighted_gene_sig %>%  relocate(sig_idx)
+
+# save(weighted_gene_sig, unweighted_gene_sig, file = "gene_signatures_03-18-21.RData")
+
+```
+
+## Performing the CMap analysis 
+
+
+
+```{r}
+
+# Figuring out which perts to analyze
+meta_cols_to_keep <- 
+  c("sig_id",
+    "pert_id",
+    "pert_iname")
+
+trt_cp <-
+  read_rds('data_raw/GSE92742_inst_metadata.rds') %>% 
+  filter(pert_type == "trt_cp") %>% 
+  distinct
+
+trt_cp <- trt_cp[,meta_cols_to_keep]
+
+#TODO think refactoring such that this works with updated file 
+# right now it doesn't for the end result, it's just annoying have
+# what amounts to duplicate files. 
+drgbnk_db <- 
+  readRDS('data_raw/pert_overlap_cmap_drugbank_stitch.rds') %>% 
+  select(pert_id, pert_iname, drugbank_id) %>% 
+  na.omit %>% 
+  distinct
+
+trt_cp <- inner_join(trt_cp, drgbnk_db)
+# saveRDS(trt_cp, "sig_id_drugbank_cmap_overlap.rds")
+
+load("gene_signatures_03-18-21.RData")
+gctx_file <- '/zfs1/dtaylor/cmap_data/clue_test_data/sig_score_trt_cp_n204975x10174.gctx'
+cids <- read_gctx_meta(gctx_file,dim = "col") %>% pull
+gids <- read_gctx_meta(gctx_file,dim = "row") %>% pull
+
+# Filters all but sigs with DrugBank pert
+cids <- cids[cids %in% trt_cp$sig_id]
+
+cid_chunks <- chunker(cids, 6)
+
+
+
+gene_sets <- unweighted_gene_sig %>% 
+  select(sig_idx, up_genes_entrez, down_genes_entrez)
+
+
+unweighted_res_sub <-
+  map(cid_chunks, function(y){
+    sig_list <- 
+      gctx_to_sigList(gctx_file, y, decreasing_order = FALSE)
+    out_res <- multi_broad_wrapper(gene_sets, sig_list, 7)
+  }) %>% 
+  bind_rows
+
+unweighted_random_res_sub[6:7] <- 
+  # map(1:nrow(gene_sets), function(i){
+  map(6:7, function(i){ # re-running 2 sigs because t
+    x <- gene_sets[i,]
+    up_genes <- str_split(x[,2], pattern = ';') %>% unlist
+    up_genes <- up_genes[up_genes %in% gids]
+    down_genes <- str_split(x[,3], pattern = ';') %>% unlist
+    down_genes <- down_genes[down_genes %in% gids]
+    random_cs <- 
+      get_random_cmap_scores(up_genes, down_genes, gctx_file, cids, n_perm=5e+05, num_chunks = 6, n_cores = 12)
+  })
+
+
+# save(unweighted_res_sub, unweighted_random_res_sub, file = "unweighted_cmap_res_db_sub_03-22-21.RData")
+
+
+```
+
+## Calculating the p-values 
+```{r}
+load("unweighted_cmap_res_db_sub_03-22-21.RData")
+# Removing extra columns to save on mem
+unweighted_random_res_sub <- unweighted_random_res_sub %>% 
+  map(function(x){
+    x$r_up_genes <- NULL
+    x$r_down_genes <- NULL
+    return(x)
+  })
+
+unweighted_res_sub$up_genes <- NULL
+unweighted_res_sub$down_genes <- NULL
+gc()
+
+plan(multisession, workers=15)
+unweighted_res_sub <- split(unweighted_res_sub, unweighted_res_sub$sig_idx)
+unweighted_res_w_p_value <- add_p_vals_to_cmap_para(unweighted_res_sub, unweighted_random_res_sub)
+# saveRDS(unweighted_res_w_p_value, "unweighted_res_sub_w_p-values_03-22-21.rds")
+
+```
 

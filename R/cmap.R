@@ -330,7 +330,74 @@ get_random_cmap_scores <- function(up_genes, down_genes, gctx_file, cids=NULL, n
 }
 
 
+#' Calculates p-values for CMap results
+#'
+#' This function requires the output CMap results as created by \code{\link{single_broad_wrapper}} and a
+#' matrix of permuation values created by \code{\link{get_random_cmap_scores}}. The output is a data.frame
+#' of the CMap results with the p-values added.
+#'
+#'
+#'
+#' @param cmap_res output results from \code{\link{single_broad_wrapper}}
+#' @param perm_res output results from \code{\link{get_random_cmap_scores}}
+#'
+#' @return
+#' @export
+#'
+#' @examples
+add_p_vals_to_cmap_single <- function(cmap_res, perm_res){
+  res_w_p_vals <- seq_along(cmap_res) %>%
+    map(function(idx){
+      x <- cmap_res[[idx]]
+      y <- perm_res[[idx]]
+      # Ok so the function outer actually made things slower than map
+      # so I'll reduce the computations per iter. That might help
+      # but I'm not expecting much. I'm also parallelizing it which
+      # might help.
+      x_scores <- abs(x$cmap_score) # res cmap scores
+      y_scores <- abs(y$cmap_score) # random cmap scores
+      y_length <- length(y$cmap_score)
+      p_value <- x_scores %>%
+        map_dbl(function(score){
+          sum(y_scores >= score)
+        })
+      fdr_p_value <- p.adjust(p_value, method = 'fdr')
+      out_df <- cbind(x, p_value, fdr_p_value)
+    }) %>% bind_rows
+  return(res_w_p_vals)
+}
 
+
+
+#' Same as \code{\link{add_p_vals_to_cmap_single}} but parallel
+#'
+#' @inheritParams add_p_vals_to_cmap_single
+#'
+#' @return
+#' @export
+#'
+#' @examples
+add_p_vals_to_cmap_para <- function(cmap_res, perm_res){
+  res_w_p_vals <- seq_along(cmap_res) %>%
+    map(function(idx){
+      x <- cmap_res[[idx]]
+      y <- perm_res[[idx]]
+      # Ok so the function outer actually made things slower than map
+      # so I'll reduce the computations per iter. That might help
+      # but I'm not expecting much. I'm also parallelizing it which
+      # might help.
+      x_scores <- abs(x$cmap_score) # res cmap scores
+      y_scores <- abs(y$cmap_score) # random cmap scores
+      y_length <- length(y$cmap_score)
+      p_value <- x_scores %>%
+        future_map_dbl(function(score){
+          sum(y_scores >= score)
+        })
+      fdr_p_value <- p.adjust(p_value, method = 'fdr')
+      out_df <- cbind(x, p_value, fdr_p_value)
+    }) %>% bind_rows
+  return(res_w_p_vals)
+}
 
 
 
