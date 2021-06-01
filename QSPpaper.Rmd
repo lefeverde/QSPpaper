@@ -9,14 +9,16 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Introduction
-This code is the analysis portion of the paper. Intermediate data files are stored throughout the notebook as commented out `RDS` files. These are typically saved when creating the intermediate data is both/or time consuming or used at branch points within the analysis. Some of the code chunks rely on functions from my personal packages which are not on `CRAN` or `BioConductor` installed from github.
+# Overview
+The first section, [Analysis](#Analysis) has the code used in the computational analsyis of [@QSPpaper]. Intermediate data files are stored throughout the notebook as commented out `RDS` files. These are typically saved when creating the intermediate data is both/or time consuming or used at branch points within the analysis. Some of the code chunks rely on functions from my personal packages which are not on `CRAN` or `BioConductor` installed from github. 
+
+The second section [Results](#Results) contain the code used to create the tables, figures, and data files for this paper.  
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(eval = FALSE)
 ```
 
-
+# Analysis 
 ## Installing my packages
 ```{r}
 
@@ -50,8 +52,8 @@ require(dendextend)
 
 
 
-# Pre-processing pipeline
-## Creating gene metadata
+## Pre-processing pipeline
+### Creating gene metadata
 ```{r}
 
 gene_dir <- 'data-raw/DiStefano_raw_data/kallisto/'
@@ -85,7 +87,7 @@ gene_annots <- getBM(attributes, "ensembl_gene_id", ens_genes, ensembl)
 
 ```
 
-## Identifying mis-labeled samples 
+### Identifying mis-labeled samples 
 ```{r}
 
 
@@ -110,7 +112,7 @@ plot_data <-
 ```
 
 
-## Sex is incorrect for some samples 
+### Sex is incorrect for some samples 
 Since this gene is Y-linked, I expect the males to have much higher expression than the females. I think the non-zero expression in the females can be attributed to multi-mapping reads. Kallisto does mapping a little differently, and so these are not discarded by default like with STAR and HISAT2.
 
 ```{r}
@@ -137,7 +139,7 @@ suspicious_samples <- list(
 
 ```
 
-## Creating new subsetted txi 
+### Creating new subsetted txi 
 ```{r}
 suspicious_samples <- 
   c("DLDR_0189","DLDR_0031","DLDR_0022","DLDR_0017","DLDR_0131", "DLDR_0130","DLDR_0140","DLDR_0122","DLDR_0123","DLDR_0111")
@@ -159,10 +161,10 @@ txi <- tximport(files, type = 'kallisto', tx2gene = tx2gene, ignoreTxVersion = T
 ```
 
 
-# Preliminary data cleaning and analysis 
+## Preliminary data cleaning and analysis 
 
 
-## Creating cleaned expression matrix object and running SVA
+### Creating cleaned expression matrix object and running SVA
 ```{r}
 
 load('data-raw/gene_annots.RData')
@@ -187,8 +189,8 @@ svobj <- sva(v$E, mod=mod, mod0=mod0)
 ```
 
 
-# GSVA pathway cluster analysis
-## Loading KEGG metadata
+## GSVA pathway cluster analysis
+### Loading KEGG metadata
 These files are not going to be included because of licensing issues with KEGG. The MSigDB pathways can be found at this [link](https://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/MSigDB_v7.0_Release_Notes).
 
 ```{r}
@@ -227,7 +229,7 @@ kegg_annots <-
 
 ```
 
-## Loading and pre-processing gene expression data 
+### Loading and pre-processing gene expression data 
 Since I'm going run GSVA, I'm removing the batch effects predicted by SVA instead of including them in the downstream deferentially enriched pathway analysis. This is because the SVA matrix will be the wrong size. I'm also uniquefying the genes by variance. In other words, of the genes which match to the same entrez gene ID, I'm choosing the one that has the most variance.
 
 ```{r}
@@ -251,13 +253,13 @@ row.names(v_e) <- gene_annots[row.names(v_e),]$entrezgene
 
 ```
 
-## Running GSVA and Clustering the output
+### Running GSVA and Clustering the output
 I'm converting the gene x patient expression matrix into a pathway x patient enrichment matrix via [GSVA](https://www.bioconductor.org/packages/release/bioc/html/GSVA.html). I then perform a clustering analysis on the pathway x patient enrichment matrix. 
 
 ```{r}
 
 gsva_res_sva <- 
-  gsva(e_rm, cp_kegg, method='gsva',  min.sz=1, max.sz=100000, parallel.sz=3)
+  gsva(e_rm, cp_kegg, method='gsva',  min.sz=1, max.sz=100000)
 
 
 tmp_data <- gsva_res_sva[names(kegg_annots),row.names(p)]
@@ -275,7 +277,7 @@ col_clust <-
 
 ```
 
-### Showing a dendrogram of the results
+#### Showing a dendrogram of the results
 This chunk just creates a dendrogram of the clustering, like the one in figure 2. First, I create a color map of the different diagnoses, then the actual plot itself
 
 ```{r}
@@ -330,11 +332,12 @@ par(cex=.5)
 plot.new()
 plot(dend)
 
+# save(dend, col_map, tmp_data,file =  "data_for_figure2_heatmap.RData")
 
 ```
 
 
-## Creating new groups based on clustering
+### Creating new groups based on clustering
 I'm cutting the dendogram at the 3rd level, since 3 distinct clusters naturally form (see figure 2 and previous section). This is used to create new groupings of the samples (see methods section of paper).
 
 Apparently the default `cutree` will sort the clusters by number of items in each cluster. This is different than `ComplexHeatmap`. The `dendextend` version has an option to turn this "feature" off. To do this, set the confusingly named argument `order_clusters_as_data` to `FALSE`. 
@@ -355,8 +358,8 @@ lvls <- levels(coefs_from_clusters$cluster_idx)
 
 ```
 
-## Running LIMMA-VOOM using the new groupings
-### Identifying differentially enriched pathways 
+### Running LIMMA-VOOM using the new groupings
+#### Identifying differentially enriched pathways 
 ```{r}
 
 group_cont <- c("c2-c1", "c3-c1", "c3-c2")
@@ -381,7 +384,7 @@ res <- right_join( hier_kegg, res)
 
 ```
 
-### Identifying differentially expressed genes
+#### Identifying differentially expressed genes
 ```{r}
 fit <-   
   lmFit(v, data.frame(mod)) %>% 
@@ -393,8 +396,8 @@ res <- get_limma_results(fit, group_cont)
 
 ```
 
-# Creating gene signatures 
-## Loading and prepping the requisite data
+## Creating gene signatures 
+### Loading and prepping the requisite data
 
 ```{r}
 cat_pths <- 
@@ -437,7 +440,7 @@ gene_pth_filt <- inner_join(gene_res, sig_pth_res)
 ```
 
 
-## Creating the gene sigantures 
+### Creating the gene sigantures 
 ```{r}
 
 upreg_genes <- gene_pth_filt %>% 
@@ -464,7 +467,7 @@ unweighted_gene_sig <- unweighted_gene_sig %>%  relocate(sig_idx)
 
 ```
 
-## Performing the CMap analysis 
+### Performing the CMap analysis 
 
 
 
@@ -537,7 +540,7 @@ unweighted_random_res_sub[6:7] <-
 
 ```
 
-## Calculating the p-values 
+### Calculating the p-values 
 ```{r}
 load("unweighted_cmap_res_db_sub_03-22-21.RData")
 # Removing extra columns to save on mem
@@ -559,3 +562,395 @@ unweighted_res_w_p_value <- add_p_vals_to_cmap_para(unweighted_res_sub, unweight
 
 ```
 
+## Creating database DrugBank LINCS 
+```{r}
+load('data-raw/Fen_drugbank_and_stitch_data.RData')
+
+drugbank_data <- 
+  drugbank_data[,2:10] %>% 
+  separate_rows(., Synonyms, sep = '\\|')
+names(drugbank_data) <- str_to_lower(names(drugbank_data))
+
+dd1 <- drugbank_data[,-3]
+names(dd1)[2] <- 'drug_name'
+dd2 <- drugbank_data[,-2]
+names(dd2)[2] <- 'drug_name'
+tmp_db_data <- 
+  rbind(dd1, dd2) %>% 
+  distinct 
+
+
+names(tmp_db_data)[which(names(tmp_db_data) == 'smiles')] <- 'canonical_smiles'
+names(tmp_db_data)[which(names(tmp_db_data) == 'pubchem_compound_id')] <- 'pubchem_cid'
+tmp_db_data$pert_iname <- str_to_lower(tmp_db_data$drug_name)
+
+cols_to_keep <- c('canonical_smiles', 'pubchem_cid', 'pert_iname')
+db_cmap_matches <- 
+  lapply(cols_to_keep, function(x){
+    db_sub <- 
+      tmp_db_data[,c('drugbank_id', x)] %>% 
+      na.omit %>% 
+      distinct
+    inner_join(tmp_map, db_sub, na_matches = "never")
+    # inner_join(trt_cps, db_sub, na_matches = "never")
+}) %>% do.call(rbind, .)
+# saveRDS(db_cmap_matches, file = 'GSE92742_perts_in_DrugBank.rds')
+
+# Removing extra columns and then re-adding based on trt_cps file
+db_cmap_matches <- db_cmap_matches %>% 
+  select(pert_id, pert_iname, drugbank_id) %>% 
+  left_join(., drugbank_data[,c("drugbank_id", "name")]) %>% 
+  distinct
+man_annots <- read_rds("manual_lincs_drugbank_drug_annots.rds")
+db_cmap_matches <- db_cmap_matches %>% filter(!pert_id %in% man_annots$pert_id)
+db_cmap_matches <- rbind(db_cmap_matches, man_annots)
+
+dbids_to_remove <- c("DB07159", "DB02507", "DB02731", "DB00452", "DB00624") # These are duplicates with extraneous DB IDs
+
+db_cmap_matches <- db_cmap_matches %>% filter(!drugbank_id %in% dbids_to_remove)
+
+# saveRDS(db_cmap_matches, file = 'GSE92742_perts_in_DrugBank_03-30-21.rds')
+```
+
+
+# Results 
+## Figures 
+### Figure 2: Heatmap 
+
+```{r}
+
+library(ComplexHeatmap)
+
+load("data_raw/data_for_figure2_heatmap.RData")
+
+
+col_tits <- 
+  c("Normal &\nSteatosis\n(N&S)",
+    "Predominately\nLobular\nInflammation\n(PLI)",
+    "Predominately\nFibrosis\n(PF)")
+cluster_colors <- c("#6a3d9a","#ff7f00", "#b15928")
+
+v <-  read_rds('data_raw/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
+p <-  v$targets
+
+cols_to_keep <- c("diagnosis", "bmi_surg", "sex", "age","icd_250")
+
+annot_map <- p[,cols_to_keep] %>% 
+  rownames_to_column %>% 
+  map_if(is.factor, as.character) %>% 
+  bind_cols %>% 
+  as.data.frame
+row.names(annot_map) <- annot_map$rowname
+annot_map <- annot_map[,-1]
+colnames(annot_map) <- str_to_title(colnames(annot_map))
+
+colnames(annot_map)[ncol(annot_map)] <- "T2D"
+
+
+
+sex <- c('palevioletred1', 'royalblue') %>% 
+  setNames(., c('Female', 'Male'))
+
+col_map <- 
+  list(Sex=sex, Diagnosis=col_map)
+
+age_plot <- anno_points(annot_map['Age'], 
+                        size = unit(1.5, "mm"),
+                        axis_param =list(side="right",
+                                         at=c(30,  60),
+                                         gp=gpar(fontsize = 4.5,
+                                                 fontface='bold')))
+
+
+bmi <- anno_barplot(annot_map['Bmi_surg'],
+                    axis_param = list(side="right",
+                                      at=c(30, 90 ),
+                                      gp=gpar(fontsize = 4.5, fontface='bold')))
+
+
+tmp_ht <-
+  Heatmap(tmp_data, 
+          # Column args
+          show_column_names = FALSE, 
+          cluster_columns= col_dend,
+          column_title = col_tits,
+          column_title_gp = gpar(fontsize=12, fontface="bold", col=cluster_colors),
+          # column_dend_reorder = TRUE,
+          column_split = 3,
+          column_gap = unit(2, "mm"),
+          # Row args 
+          cluster_rows = TRUE,
+          cluster_row_slices = FALSE,
+          show_row_names = FALSE,
+          show_row_dend = FALSE,
+          row_split = kegg_annots,
+          row_title_gp = gpar(fontsize=12, fontface="bold"),
+          row_title_rot = 0,
+          # Annotations
+
+          top_annotation  = ha,
+          # Dimensions
+          height = unit(.025*nrow(tmp_data), 'inch'),
+          width = unit(.025*ncol(tmp_data), 'inch'),
+          # Misc parameters
+          show_heatmap_legend = TRUE,
+          heatmap_legend_param =
+            list(title = "ES",
+                 just = "right",
+                 legend_width = unit(.0125*ncol(tmp_data), 'inch'), 
+                 grid_width =unit(.75, 'cm'),
+                 direction = "horizontal",
+                 title_position = "lefttop")
+          
+  )
+
+ht_height <- 
+    ComplexHeatmap:::height(draw(tmp_ht, heatmap_legend_side="bottom")) %>% 
+    convertUnit(., 'inch') %>% 
+    ceiling
+ht_width <- 
+    ComplexHeatmap:::width(draw(tmp_ht, heatmap_legend_side="bottom")) %>% 
+    convertUnit(., 'inch') %>% 
+    ceiling
+
+
+
+pdf(file = "figure2_heatmap.pdf",
+    height = ht_height,
+    width = ht_width,
+    bg = "transparent")
+# draw(tmp_ht, heatmap_legend_side="bottom")
+draw(tmp_ht, show_annotation_legend = FALSE, show_heatmap_legend=FALSE)
+dev.off()
+
+
+
+```
+
+### Figure 3: Pathway summaries 
+```{r}
+sig_pth_res <- 
+  read_rds("data_raw/lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
+  filter(adj.P.Val < .001)
+coef_nms <- c("PLI vs. N&S", "PF vs. N&S", "PF vs. PLI" ) %>% 
+  setNames(.,unique(sig_pth_res$coefficient))
+
+sig_pth_res$coefficient <- factor(coef_nms[sig_pth_res$coefficient], levels = coef_nms)
+
+cat_pths <- 
+  read_delim("data_raw/NAFLD_progression2path_03-09-2021.txt", 
+             "\t",
+             col_names = FALSE) %>% 
+  set_names(., c("disease_category", "id"))
+
+cat_pths$disease_category <- paste0("C", cat_pths$disease_category)
+
+sig_pth_res <- left_join(sig_pth_res, cat_pths)
+
+```
+
+#### Top panel
+```{r}
+library(scales)
+library(cowplot)
+
+plot_data <- sig_pth_res %>% 
+  select(coefficient, name, category_level_1) %>%
+  distinct %>%
+  group_by(coefficient, category_level_1) %>% 
+  summarise(cnt=n()) %>% 
+  mutate(prct=cnt/sum(cnt)) %>% 
+  ungroup %>% 
+  mutate(category_categorization="KEGG Groups")
+names(plot_data)[2] <- "pathway_category"
+
+
+plot_data2 <- sig_pth_res %>% 
+  select(coefficient, name, disease_category) %>% 
+  distinct %>% 
+  group_by(coefficient, disease_category) %>% 
+  summarise(cnt=n()) %>% 
+  mutate(prct=cnt/sum(cnt)) %>% 
+  ungroup %>% 
+  mutate(category_categorization="NAFLD Categories")
+names(plot_data2)[2] <- "pathway_category"
+
+
+
+plot_data <- rbind(plot_data, plot_data2)
+rm(plot_data2)
+plot_data$category_categorization <- 
+  factor(plot_data$category_categorization, levels = c("KEGG Groups", "NAFLD Categories"))
+lvls <- c(unique(sig_pth_res$category_level_1), unique(cat_pths$disease_category)) %>% rev
+plot_data$pathway_category <- factor(plot_data$pathway_category, levels=lvls)
+
+
+plot_data$prct <- label_percent(accuracy = .1)(plot_data$prct)
+
+plt <-  ggplot(data=plot_data, aes(x=pathway_category, y=cnt)) + 
+  geom_bar(stat='identity',aes(fill=category_categorization))  + 
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1),
+        text=element_text(face="bold"),
+        axis.title.y = element_blank(), 
+        axis.title.x = element_text(face="bold", size=12, colour="black"),
+        axis.text = element_text(face="bold", size=12, colour="black"),
+        aspect.ratio = 1,
+        strip.text = element_text(size =12),
+        panel.spacing = unit(1.5, "lines"),
+        legend.position = "none") + 
+  facet_grid(category_categorization ~ coefficient    , scales = "free_y") +
+  scale_y_continuous(expand = expansion(mult = c(0, .4))) +
+  coord_flip()
+
+plt <- plt + geom_text(aes(x=pathway_category, y=cnt, label=prct),size=3.5, hjust = -.075) + labs(y="Number of differentially enriched pathways")
+ggsave("updated_fig3_pathway_summary.pdf",plt, height = 4.5, width = 8.75)
+
+```
+
+#### Top 10 pathway bar charts
+```{r}
+library(readr)
+library(cowplot)
+
+
+
+cats_to_keep <- c("C1", "C2", "C3", "C4")
+
+pth_data <- read_csv("Data_file_S2_Differentially_enriched_pathways.csv") %>% 
+  separate_rows(nafld_categories, sep = '\\|')
+
+
+plot_data <- pth_data %>% 
+  # select(-2) %>% 
+  mutate(pathway_neg_log10_pval=-log(adj.P.Val)) %>% 
+  distinct
+  
+
+plot_data <- plot_data %>%
+  group_by(comparison) %>% 
+  arrange(desc(pathway_neg_log10_pval), .by_group=FALSE) %>% 
+  slice(1:10) %>% 
+  ungroup
+
+plot_data$comparison <- factor(plot_data$comparison, 
+                               levels = c("PLI vs. N&S", "PF vs. N&S","PF vs. PLI" ))
+
+# plot_data <- plot_data %>% arrange(comparison, desc(pathway_logFC))
+#plot_data <- plot_data %>% arrange(comparison, pathway_logFC)
+plot_data <- plot_data %>% arrange(comparison, pathway_neg_log10_pval)
+
+plot_data$tmp_pth_name <- 
+  paste(plot_data$comparison, plot_data$pathway_name, sep="_") %>% 
+  factor(., levels = .)
+plot_data$fill_factor <- factor(if_else(plot_data$pathway_logFC < 0, 1, 2))
+
+plt <-  ggplot(data=plot_data, aes(x=tmp_pth_name, 
+                                   y=pathway_neg_log10_pval,
+                                  # alpha=pathway_neg_log10_pval,
+                                   fill=pathway_logFC)) + 
+  geom_bar(stat="identity") + 
+  coord_flip() +
+  # scale_x_discrete(labels=plot_data$pathway_name) + 
+  facet_wrap(~comparison, nrow=3, scales = "free_y") +
+  scale_x_discrete(label=function(x){
+    x %>% 
+      str_split(., '_') %>% 
+      map_chr(2)
+  }) + scale_fill_gradient2(low = "blue",mid = "white", high = "red")
+
+
+plt$labels$fill <-  ""
+plt <- plt  + theme(legend.title = element_text(face="bold"), legend.text = element_text(face="bold"))
+ggsave("log2fc_legend_for_top10_pathways.pdf", get_legend(plt), width = .75, height = 1.5)
+
+
+plt <- plt + 
+  #labs(x = '', y="Pathway log2 fold change") + 
+  guides(fill=FALSE) + 
+  theme_cowplot() +
+  theme(legend.position = "none",
+        plot.margin = unit(c(0, 0, 0, 0), "cm"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(), 
+        text=element_text(face="bold")) 
+
+ggsave("top_pathways_bar_plot.pdf", aligned_plots[[1]], height = 6.5, width = 7)
+
+```
+
+#### Creating a grid with the categories
+```{r}
+library(settleR)
+
+cat_list <- pth_data %>% 
+  select(disease_category, pathway_name) %>% 
+  distinct %>% 
+  filter(disease_category %in% cats_to_keep)
+
+cat_list$disease_category <- 
+  names(cats_to_keep)[match(cat_list$disease_category, cats_to_keep)]
+
+# cat_list <- split(cat_list, cat_list$disease_category) %>% 
+#   map(function(x) unique(x$pathway_name))
+
+cat_list <- split(cat_list, cat_list$pathway_name) %>% 
+  map(function(x) unique(x$disease_category))
+
+cat_mat <- sets_to_matrix(cat_list) 
+cat_mat[cat_mat == 0] <- NA
+cat_mat <- melt(cat_mat) %>% na.omit
+cat_mat <- cat_mat[,-3]
+names(cat_mat) <- c("disease_category", "pathway_name")
+
+plot_data <- left_join(plot_data, cat_mat)
+
+grid_data <-  plot_data %>% 
+    split(., .$tmp_pth_name) %>% 
+    map(function(x) as.character(x$disease_category)) %>% 
+    sets_to_matrix(.) 
+grid_data <- grid_data[sort(row.names(grid_data)),] %>% melt %>% 
+    setNames(., c("intersect_id","set_names","observed"))
+grid_data$observed <- as.logical(grid_data$observed) 
+
+grid_data$comparison <- str_split(grid_data$set_names, '_') %>% map_chr(1) %>% 
+  factor(., levels = levels(plot_data$comparison))
+
+
+
+
+v_max <- max(1, length(unique(grid_data$intersect_id)) -1)
+v_breaks <- seq(1, v_max, by = 1)+ .5
+h_max <- max(1, length(unique(grid_data$set_names)) - 1)
+h_breaks <- seq(1, h_max, by = 1)+ .5
+
+dot_size <- 4.25
+
+p <-  ggplot(data=grid_data, aes(x=intersect_id, y=set_names)) +
+  geom_point(size=dot_size, alpha=.25) +
+  theme_empty()
+# just plots empty dots
+
+# p <- p +
+#   geom_line(data=grid_data[grid_data$observed,], # adds the lines
+#             aes(x=intersect_id, y=set_names, group=set_names),
+#             size=dot_size/3,
+#             inherit.aes = FALSE)
+p <- p +
+  geom_point(data=grid_data[grid_data$observed,], # Add `filled in points`
+             aes(x=intersect_id, y=set_names),
+             size=dot_size,
+             inherit.aes = FALSE)
+p <- p + theme(axis.text.y = element_blank(),
+               plot.margin = unit(c(0, 0, 0, 0), "cm")) +
+  geom_vline(xintercept = v_breaks) +
+  geom_hline(yintercept = h_breaks)
+
+p <-  p + facet_wrap(~comparison, nrow=3, scales = "free_y")
+
+aligned_plots <- cowplot::align_plots(plt, p, align="hv", axis="tblr")
+
+
+ggsave("disease_category_grid_plot.pdf", aligned_plots[[2]], height = 6.5, width = 6)
+
+
+```
