@@ -463,11 +463,11 @@ unweighted_gene_sig <-
 unweighted_gene_sig$sig_idx <- 1:12
 unweighted_gene_sig <- unweighted_gene_sig %>%  relocate(sig_idx)
 
-# save(weighted_gene_sig, unweighted_gene_sig, file = "gene_signatures_03-18-21.RData")
+# save(unweighted_gene_sig, file = "gene_signatures_03-18-21.RData")
 
 ```
 
-### Performing the CMap analysis 
+## Performing the CMap analysis 
 
 
 
@@ -561,6 +561,64 @@ unweighted_res_w_p_value <- add_p_vals_to_cmap_para(unweighted_res_sub, unweight
 # saveRDS(unweighted_res_w_p_value, "unweighted_res_sub_w_p-values_03-22-21.rds")
 
 ```
+
+### Processing raw CMap results
+```{r}
+
+meta_cols_to_keep <- 
+  c("sig_id",
+    "pert_id",
+    "pert_iname")
+trt_cp <-
+  read_rds('../cmapAnalysis/GSE92742_inst_metadata.rds') %>% 
+  filter(pert_type == "trt_cp") %>% 
+  distinct
+
+trt_cp <- trt_cp[,meta_cols_to_keep]
+
+load("../thesisAnalysis/gene_signatures_03-18-21.RData")
+
+
+cmap_res <- read_rds("../thesisAnalysis/unweighted_res_sub_w_p-values_03-22-21.rds")
+# Fixing some issues with p-values, since I didn't divide by 
+# length. 
+cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(p_value=p_value/max(p_value))
+cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(fdr_p_value=p.adjust(p_value, method = 'fdr'))
+
+
+sig_idx_map <- read_csv("../thesisAnalysis/Data_file_S3_Gene_signatures.csv") %>% 
+  select(1:3)
+names(sig_idx_map)[1] <- "sig_idx"
+
+sig_cmap <- inner_join(trt_cp, cmap_res) %>% 
+  group_by(sig_idx, pert_iname) %>% 
+  arrange(cmap_score, .by_group=TRUE) %>% 
+  slice(1) %>% 
+  ungroup
+sig_cmap <- left_join(sig_cmap, sig_idx_map)
+
+drg_db <- read_rds("data-raw/GSE92742_perts_in_DrugBank_03-30-21.rds") 
+sig_cmap <- left_join(sig_cmap, drg_db)
+
+sig_cmap <- sig_cmap %>% 
+  group_by(sig_idx) %>% 
+  arrange(cmap_score, .by_group=TRUE) %>% 
+  mutate(drug_idx=row_number()) %>% 
+  ungroup
+
+fdr05_tbl <- sig_cmap %>% 
+  filter(fdr_p_value < .05) %>% 
+  # select(-drugbank_id, -name) %>% 
+  distinct %>% 
+  group_by(sig_idx) %>% 
+  arrange(cmap_score, .by_group=TRUE) %>% 
+  slice(1:20) %>% 
+  ungroup
+# saveRDS(fdr05_tbl, "fdr05_tbl_top20_drugs.rds")
+
+
+```
+
 
 ## Creating database DrugBank LINCS 
 ```{r}
@@ -952,5 +1010,323 @@ aligned_plots <- cowplot::align_plots(plt, p, align="hv", axis="tblr")
 
 ggsave("disease_category_grid_plot.pdf", aligned_plots[[2]], height = 6.5, width = 6)
 
+
+```
+## Tables 
+### Table S2
+```{r}
+library(flextable)
+library(officer)
+#TODO Refactor so this all uses the data files 
+sig_pth_res <- 
+  read_rds("lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
+  filter(adj.P.Val < .001)
+coef_nms <- c("PLI vs. N&S", "PF vs. N&S", "PF vs. PLI" ) %>% 
+  setNames(.,unique(sig_pth_res$coefficient))
+
+sig_pth_res$coefficient <- factor(coef_nms[sig_pth_res$coefficient], levels = coef_nms)
+
+#TODO Refactor this bit 
+fen_pths <- 
+  read_delim("NAFLD_progression2path_03-09-2021.txt", "\t", col_names = FALSE) %>% 
+  set_names(., c("fens_category", "id"))
+
+#TODO Refactor this bit 
+pth_map <- 
+  read_delim("fens_categories.txt", ";", col_names = FALSE) %>% 
+  setNames(., c("fens_category", "disease_category"))
+
+fen_pths <- left_join(fen_pths, pth_map)
+fen_pths$fens_category <- paste0("C", fen_pths$fens_category)
+# sig_pth_res <- left_join(sig_pth_res, fen_pths)
+
+nafld_category <- split(fen_pths, fen_pths$id) %>% 
+  map(function(x){
+    tmp_cats <-  x %>% 
+      pull(fens_category) %>% 
+      paste0(., collapse = '|') %>% 
+      enframe
+  }) %>% rbind_named_df_list(., "id") %>% 
+  select(-name)
+names(nafld_category)[2] <- "nafld_categories"
+
+sig_pth_res <- left_join(sig_pth_res, nafld_category)
+
+#TODO File needs to be included somehow
+pth_refs <- 
+  read_excel("/Users/daniellefever/Desktop/Lans_Taylor_Lab/NAFLD_MPS/presentations_and_meetings/update_presentations/210312/pth_refs.xlsx", sheet = 1)
+pth_refs <- pth_refs[,c(2,3)]
+
+pth_refs <-  split(pth_refs, pth_refs$pathway_id) %>% 
+  map(function(x){
+    tmp_cats <-  x %>% 
+      pull(pmids) %>% 
+      paste0(., collapse = '|') %>% 
+      enframe
+  }) %>% rbind_named_df_list(., "id") %>% 
+  select(-name)
+
+names(pth_refs)[2] <- "PMID"
+
+
+tbl_data <- left_join(sig_pth_res, pth_refs)
+tbl_data <- left_join(tbl_data, nafld_category)
+fixed_pathway_name <- paste0("(", tbl_data$id, ")") %>% 
+  paste(tbl_data$description, .)
+tbl_data$fixed_pathway_name <- fixed_pathway_name
+
+
+cols_to_keep <- 
+  c("coefficient", "fixed_pathway_name", "category_level_1","category_level_2","nafld_categories", "logFC", "adj.P.Val", "PMID")
+
+tbl_data <- tbl_data[,cols_to_keep]
+
+
+fixed_nms <- c("coefficient","Pathway name", "KEGG pathway group", "KEGG pathway subgroup", "NAFLD category", "log2 Fold change", "FDR corrected p-value","PMIDs")
+
+split_tbls <- split(tbl_data, tbl_data$coefficient) %>% 
+  map(function(x){
+    tmp_tbl <- x %>% 
+      arrange(logFC)
+    names(tmp_tbl) <- fixed_nms
+    return(tmp_tbl)
+  })
+
+# write_csv(split_tbls[[1]], "foo.csv")
+
+```
+
+## Data files 
+### Data file S1
+```{r}
+
+hier_kegg <- 
+  read_rds('data-raw/kegg_pathway_hierarchy.rds')
+
+#TODO refactor here 
+fen_pths <- 
+  read_delim("NAFLD_progression2path_03-09-2021.txt", 
+             "\t",
+             col_names = FALSE) %>% 
+  set_names(., c("fens_category", "id"))
+
+pth_map <- 
+  read_delim("fens_categories.txt", ";", col_names = FALSE) %>% 
+  setNames(., c("fens_category", "disease_category"))
+
+fen_pths <- left_join(fen_pths, pth_map)
+fen_pths$fens_category <- NULL
+
+
+kegg_df <- 
+  read_rds("c2_kegg_entrez_msigdb_v7.0_database.rds") %>% 
+  right_join(., fen_pths) %>% 
+  separate_rows(., entrezgene, sep = '\\|')
+
+per_gene_kegg <- split(kegg_df, kegg_df$entrezgene) %>% 
+  map(function(x){
+    kegg_pathway_names <- paste0(unique(x$description), collapse = '|')
+    kegg_pathway_ids <- paste0(unique(x$id), collapse = '|')
+    entrezgene <- unique(x$entrezgene)
+    out_df <- tibble(entrezgene, kegg_pathway_names, kegg_pathway_ids)
+  }) %>% do.call(rbind, .)
+
+per_gene_kegg <- distinct(per_gene_kegg)
+
+
+adj_p_val_thresh <- .05
+
+cols_to_remove <- 
+  c("gene_biotype","description")
+gene_res <- read_rds('gene_res_from_clusters.rds') %>% select(-cols_to_remove)
+
+
+gene_res$entrezgene <- as.character(gene_res$entrezgene)
+
+sig_gene_res <- gene_res %>% 
+  filter(adj.P.Val < adj_p_val_thresh) 
+
+sig_gene_res <- left_join(sig_gene_res, per_gene_kegg)
+
+names(sig_gene_res)[1:4] <- c("comparison", "ensembl_id", "gene_symbol", "entrez_gene_id")
+
+clst_map <- 
+  c("PLI vs. N&S", "PF vs. N&S", "PF vs. PLI") %>% 
+  setNames(., unique(sig_gene_res$comparison))
+sig_gene_res$comparison <- unlist(clst_map[sig_gene_res$comparison])
+sig_gene_res <- sig_gene_res %>% 
+  relocate(gene_symbol, .before=ensembl_id) %>% 
+  relocate(entrez_gene_id, .before=ensembl_id)
+
+# write_csv(sig_gene_res, file = "Data_file_S1_DEG_details.csv")
+
+```
+
+### Data file S2
+```{r}
+
+cols_to_remove <- c("name", "category_id")
+
+sig_pth_res <- 
+  read_rds("lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
+  filter(adj.P.Val < .001) %>% 
+  select(-cols_to_remove)
+
+sig_pth_res <- sig_pth_res %>% relocate(description, .before=id)
+names(sig_pth_res)[1:2] <- c("comparison", "pathway_name")
+
+sig_pth_res$comparison <- unlist(clst_map[sig_pth_res$comparison])
+names(sig_pth_res)[4:5] <-  c("kegg_pathway_group", "kegg_pathway_subgroup")
+
+
+nafld_category <- 
+  read_delim("NAFLD_progression2path_03-09-2021.txt", 
+             "\t",
+             col_names = FALSE) %>% 
+  set_names(., c("nafld_categories", "id"))
+
+nafld_category$nafld_categories <- paste0("C", nafld_category$nafld_categories)
+nafld_category <- split(nafld_category, nafld_category$id) %>% 
+  map(function(x){
+    ncats <- paste(unique(x$nafld_categories), collapse = "|")
+    id <- unique(x$id)
+    tibble(nafld_categories=ncats, id)
+  }) %>% bind_rows
+sig_pth_res <- left_join(sig_pth_res, nafld_category)
+
+# write_csv(sig_pth_res, file = "Data_file_S2_Differentially_enriched_pathways.csv")
+
+```
+
+
+### Data file S3
+03/31/21
+```{r}
+load("gene_signatures_03-18-21.RData")
+
+old_gene_sigs <- read_csv("Data_file_S3_Gene_signatures.csv")
+
+sig_ids <- old_gene_sigs[,1:3]
+
+
+
+
+new_gene_sig <- 
+  unweighted_gene_sig %>% 
+  select(-coefficient, -fens_category, -n_upreg, -n_downreg)
+new_gene_sig <- right_join(sig_ids, new_gene_sig)
+
+xx <- as.data.frame(org.Hs.eg.db::org.Hs.egSYMBOL) %>%
+  setNames(., c("entrezgene", "gene_name"))
+
+upreg_sig <- new_gene_sig %>% select(-down_genes_entrez) %>% separate_rows(up_genes_entrez, sep=";")
+names(upreg_sig)[4] <- "entrezgene"
+upreg_sig <- left_join(upreg_sig, xx) %>% 
+  group_by(sig_idx, comparison, nafld_pathway_category) %>% 
+  summarise(`up-regulated_gene_names`=paste(unique(gene_name), collapse = ";"),
+            `up-regulated_entrez_ids`=paste(unique(entrezgene), collapse = ";"))
+
+downreg_sig <- new_gene_sig %>% select(-up_genes_entrez) %>% separate_rows(down_genes_entrez, sep=";")
+names(downreg_sig)[4] <- "entrezgene"
+downreg_sig <- left_join(downreg_sig, xx) %>% 
+  group_by(sig_idx, comparison, nafld_pathway_category) %>% 
+  summarise(`down-regulated_gene_names`=paste(unique(gene_name), collapse = ";"),
+            `down-regulated_entrez_ids`=paste(unique(entrezgene), collapse = ";"))
+
+out_df <- left_join(upreg_sig, downreg_sig)
+# write_csv(out_df, "Data_file_S3_Gene_signatures.csv")
+
+```
+
+
+
+### Data file S4
+
+```{r}
+
+gene_sig_map <- 
+  read_csv("Data_file_S3_Gene_signatures.csv") %>% 
+  select(1:3)
+
+
+cmap_res <- read_rds("unweighted_res_sub_w_p-values_03-22-21.rds")
+# Fixing some issues with p-values, since I didn't divide by 
+# length. 
+cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(p_value=p_value/max(p_value))
+cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(fdr_p_value=p.adjust(p_value, method = 'fdr'))
+names(cmap_res)[1] <- 'gene_sig_idx'
+cmap_res <- left_join(gene_sig_map, cmap_res)
+
+drg_tgts <- read_rds("data-raw/drugbank_db_metadata_v5.1.4.rds") %>% select(drugbank_id, targets) %>% distinct %>% na.omit
+
+
+trt_cp <-
+  read_rds('../cmapAnalysis/GSE92742_inst_metadata.rds') %>% 
+  filter(pert_type == "trt_cp") %>% 
+  select(sig_id, pert_id, pert_iname) %>% 
+  distinct 
+
+annots <- read_rds("data-raw/GSE92742_perts_in_DrugBank_03-30-21.rds")
+trt_cp <- inner_join(trt_cp, annots)
+
+out_res <- cmap_res %>% filter(abs(cmap_score) > 0)
+out_res <- inner_join(trt_cp, out_res) %>%  relocate(gene_sig_idx, comparison, nafld_pathway_category)
+out_res <- out_res %>% 
+  group_by(gene_sig_idx) %>% 
+  arrange(cmap_score, .by_group=TRUE) %>% 
+  mutate(sig_rank=row_number()) %>% 
+  ungroup
+out_res <- left_join(out_res, drg_tgts)
+out_res <- out_res %>% select(-es_up, -es_down, -sig_rank)
+out_res <- out_res %>% relocate(targets, .after=name)
+# write_csv(out_res, "Data_file_S4_All_drugs.csv")
+
+```
+
+### Data file S5
+```{r}
+
+fdr05_tbl <- read_rds('fdr05_tbl_top20_drugs.rds')
+
+names(fdr05_tbl)[4] <- "gene_sig_idx"
+cols_to_remove <- c("es_up","es_down" ,"sig_idx","fixed_drug_names"   )
+out_file <- fdr05_tbl %>% select(-one_of(cols_to_remove))
+out_file <- out_file %>% 
+  relocate(gene_sig_idx) %>%  
+  relocate(drugbank_id, name, .after=pert_iname) %>% 
+  relocate(nafld_pathway_category, .after=gene_sig_idx) %>% 
+  relocate(drug_idx, .after=name)
+names(out_file)[8] <- "drug_rank"
+out_file <- out_file %>% relocate(comparison, .after=gene_sig_idx)
+# write_csv(out_file, file = "Data_file_S5_CMap_prioritized_139_compounds.csv")
+
+```
+
+
+
+### Data file S6
+03/31/21
+```{r}
+
+#TODO Need to add in the python code and 
+
+drug_list <- read_rds("manual_lincs_drugbank_drug_annots.rds")
+drug_list$drug_name <- drug_list$pert_iname
+drug_list$drug_name[str_detect(drug_list$pert_iname, "BR")] <- 
+  drug_list$name[str_detect(drug_list$pert_iname, "BR")]
+
+network_res <- 
+  read_csv("../network_proximity/network_proximity_results_03-27-21.csv") %>% 
+  arrange(z)
+names(network_res)[1] <- "drug_name"
+network_res <- network_res %>% relocate(z, .after=drug_name)
+
+tmp_drg_ids <- drug_list %>% select(drugbank_id, drug_name) %>% distinct
+
+
+network_res <- left_join(network_res, tmp_drg_ids)
+network_res <- network_res %>% relocate(drugbank_id, .after=drug_name)
+
+# write_csv(network_res, file="Data_file_S6_network_proximity_results.csv")
 
 ```
