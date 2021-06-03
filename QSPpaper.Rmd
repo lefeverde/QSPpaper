@@ -9,6 +9,13 @@ editor_options:
   chunk_output_type: console
 ---
 
+# TODO list
+Create example data frames of data not included due to licensing 
+Create README
+Automate code testing
+Consolidate my packages and add in any documentation
+
+
 # Overview
 The first section, [Analysis](#Analysis) has the code used in the computational analsyis of [@QSPpaper]. Intermediate data files are stored throughout the notebook as commented out `RDS` files. These are typically saved when creating the intermediate data is both/or time consuming or used at branch points within the analysis. Some of the code chunks rely on functions from my personal packages which are not on `CRAN` or `BioConductor` installed from github. 
 
@@ -56,7 +63,8 @@ require(dendextend)
 ### Creating gene metadata
 ```{r}
 
-gene_dir <- 'data-raw/DiStefano_raw_data/kallisto/'
+#TODO ask DiStefano about including this data
+gene_dir <- 'data_raw/DiStefano_raw_data/kallisto/'
 
 # Getting ENS ids from 1st tsv
 ens_trans <- 
@@ -74,7 +82,7 @@ attributes <- c("ensembl_gene_id", "ensembl_transcript_id")
 ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl", version=94)
 
 tx2gene <-  getBM(attributes, "ensembl_transcript_id", ens_trans, ensembl)
-
+# saveRDS(tx2gene, "data_raw/tx2gene.rds")
 
 attributes <- c("ensembl_gene_id",
                 "external_gene_name",
@@ -83,9 +91,24 @@ attributes <- c("ensembl_gene_id",
 
 ens_genes <- unique(tx2gene$ensembl_gene_id)
 gene_annots <- getBM(attributes, "ensembl_gene_id", ens_genes, ensembl)
-#save(gene_annots, file = "gene_annots.RData")
+#save(gene_annots, file = "data_raw/gene_annots.RData")
 
 ```
+
+### Creating initial txi object
+```{r}
+
+tx2gene <- readRDS("data_raw/tx2gene.rds")
+p <- readRDS('data_raw/DiStefano_raw_data/pdata.rds')
+files <- 
+  paste0(p$file_name, '.gz') %>% 
+  paste0('data_raw/DiStefano_raw_data/kallisto/', .)
+names(files) <- row.names(p)
+txi <- tximport(files, type = 'kallisto', tx2gene = tx2gene, ignoreTxVersion = T, countsFromAbundance = 'lengthScaledTPM')
+
+#saveRDS(list(p, txi), file='data_raw/DiStefano_txi_and_p_192.rds')
+```
+
 
 ### Identifying mis-labeled samples 
 ```{r}
@@ -93,7 +116,7 @@ gene_annots <- getBM(attributes, "ensembl_gene_id", ens_genes, ensembl)
 
 sex_linked_genes <- c('ENSG00000131002', 'ENSG00000183878', 'ENSG00000067048')
 
-txi_n192 <- readRDS('DiStefano_txi_and_p_192.rds')
+txi_n192 <- readRDS('data_raw/DiStefano_txi_and_p_192.rds')
 p192 <- txi_n192[[1]]
 txi_n192 <- txi_n192[[2]]
 cnts <- txi_n192$counts
@@ -144,15 +167,15 @@ suspicious_samples <- list(
 suspicious_samples <- 
   c("DLDR_0189","DLDR_0031","DLDR_0022","DLDR_0017","DLDR_0131", "DLDR_0130","DLDR_0140","DLDR_0122","DLDR_0123","DLDR_0111")
 
-load('data-raw/tx2gene.RData')
-p192 <- readRDS('data-raw/DiStefano_raw_data/pdata.rds')
+load('data_raw/tx2gene.RData')
+p192 <- readRDS('data_raw/DiStefano_raw_data/pdata.rds')
 p <- p192 %>%
   dplyr::filter(., !dcl_patient_id %in% suspicious_samples)
 row.names(p) <- p$dcl_patient_id
 
 files <- 
   paste0(p$file_name, '.gz') %>% 
-  paste0('data-raw/DiStefano_raw_data/kallisto/', .)
+  paste0('data_raw/DiStefano_raw_data/kallisto/', .)
 names(files) <- row.names(p)
 txi <- tximport(files, type = 'kallisto', tx2gene = tx2gene, ignoreTxVersion = T, countsFromAbundance = 'lengthScaledTPM')
 #saveRDS(list(p, txi), file='DiStefano_txi_and_p_182.rds')
@@ -160,15 +183,11 @@ txi <- tximport(files, type = 'kallisto', tx2gene = tx2gene, ignoreTxVersion = T
 
 ```
 
-
-## Preliminary data cleaning and analysis 
-
-
 ### Creating cleaned expression matrix object and running SVA
 ```{r}
 
-load('data-raw/gene_annots.RData')
-txi_list <- readRDS('DiStefano_txi_and_p_182.rds')
+load('data_raw/gene_annots.RData')
+txi_list <- readRDS('data_raw/DiStefano_txi_and_p_182.rds')
 p <- txi_list[[1]]
 txi <- txi_list[[2]]
 
@@ -195,26 +214,38 @@ These files are not going to be included because of licensing issues with KEGG. 
 
 ```{r}
 
-# This file might be able to be included
+# This file wont be included due to licensing but can be obtained from here:
+# https://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/MSigDB_v7.0_Release_Notes
+# The uncommented code has example data. 
+#TODO Add code for creation of this tibble 
 pth_data <- 
-  read_rds('../reference_files/msigdb_v7.0/msigdb_v7.0_all_tibble.rds') %>% 
+  # read_rds('../reference_files/msigdb_v7.0/msigdb_v7.0_all_tibble.rds') %>% 
+  read_rds("data_raw/example_msigdb_v7.0_all_tibble.rds") 
   filter(SUB_CATEGORY_CODE == "CP:KEGG") %>% 
   dplyr::select(STANDARD_NAME,EXACT_SOURCE) %>% 
   setNames(., c('name','id')) 
+
 
 # These pathways were causing issues and so they've been removed from the analysis
 pths_to_remove <- c("KEGG_TAURINE_AND_HYPOTAURINE_METABOLISM", "KEGG_FOLATE_BIOSYNTHESIS")
 pth_data <- pth_data %>% filter(!name %in% pths_to_remove)
 
-# I'm pretty sure this file won't be allowed at all (due to KEGG licensce)
+
+# This file was created by compiling the KEGG hiearchy files: "br08901.json","br08902.json", "br08904.json", and "br08907.json".
+# These files can be found at the following link https://www.genome.jp/kegg-bin/get_htext?br08902 by using the search function 
+# and downloading and parsing the jsons. The uncommented code has example data. 
 hier_kegg <- 
-  read_rds('../thesisAnalysis/data-raw/kegg_pathway_hierarchy.rds') %>% 
+  # read_rds('../thesisAnalysis/data_raw/kegg_pathway_hierarchy.rds') %>% 
+  read_rds("data_raw/example_kegg_pathway_hierarchy.rds")
   left_join(pth_data, .) %>% 
   arrange(category_level_1)
 
-# Same with this file but it can be obtained following the link provided above 
+
+# File can be directly downloaded from the link: https://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/MSigDB_v7.0_Release_Notes
+# 
 cp_kegg <- 
-  '../reference_files/msigdb_v7.0/c2_kegg_entrez_msigdb_v7.0.gmt' %>% 
+  # '../reference_files/msigdb_v7.0/c2_kegg_entrez_msigdb_v7.0.gmt' %>% 
+  "data_raw/example_c2_kegg_entrez_msigdb_v7.0.gmt" %>% 
   clusterProfiler::read.gmt(.) %>% 
   filter(term %in% hier_kegg$name) %>% 
   split(., .$term) %>% 
@@ -233,7 +264,7 @@ kegg_annots <-
 Since I'm going run GSVA, I'm removing the batch effects predicted by SVA instead of including them in the downstream deferentially enriched pathway analysis. This is because the SVA matrix will be the wrong size. I'm also uniquefying the genes by variance. In other words, of the genes which match to the same entrez gene ID, I'm choosing the one that has the most variance.
 
 ```{r}
-load('data_raw/gene_annots.RData')
+load('data_raw/gene_annots.RData') 
 
 v <-  read_rds('data_raw/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
 svobj <- read_rds('data_raw/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
@@ -467,9 +498,73 @@ unweighted_gene_sig <- unweighted_gene_sig %>%  relocate(sig_idx)
 
 ```
 
+## Creating database DrugBank LINCS 
+```{r}
+
+cols_to_keep <- 
+  c("pert_id",
+    "pert_iname", 
+    "pert_type",
+    "is_touchstone", 
+    "inchi_key_prefix", 
+    "inchi_key", 
+    "canonical_smiles", 
+    "pubchem_cid")
+
+# This file was created by joining the metadata files listed here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE92742
+#TODO figure out if this can be included or not 
+tmp_map <- read_rds('data_raw/GSE92742_inst_metadata.rds') %>% 
+  filter(pert_type == "trt_cp") %>% 
+  distinct
+tmp_map <- tmp_map[,cols_to_keep]
+
+# This is example of the data. The full DrugBank database  can be downloaded from here:
+# https://go.drugbank.com/releases/5-1-4/release_notes
+drugbank_data <- read_rds("data_raw/example_drugbank_v5.1.4_data.rds")
+  separate_rows(., Synonyms, sep = '\\|')
+names(drugbank_data) <- str_to_lower(names(drugbank_data))
+
+dd1 <- drugbank_data[,-3]
+names(dd1)[2] <- 'drug_name'
+dd2 <- drugbank_data[,-2]
+names(dd2)[2] <- 'drug_name'
+tmp_db_data <- 
+  rbind(dd1, dd2) %>% 
+  distinct 
+
+
+names(tmp_db_data)[which(names(tmp_db_data) == 'smiles')] <- 'canonical_smiles'
+names(tmp_db_data)[which(names(tmp_db_data) == 'pubchem_compound_id')] <- 'pubchem_cid'
+tmp_db_data$pert_iname <- str_to_lower(tmp_db_data$drug_name)
+
+cols_to_keep <- c('canonical_smiles', 'pubchem_cid', 'pert_iname')
+db_cmap_matches <- 
+  lapply(cols_to_keep, function(x){
+    db_sub <- 
+      tmp_db_data[,c('drugbank_id', x)] %>% 
+      na.omit %>% 
+      distinct
+    inner_join(tmp_map, db_sub, na_matches = "never")
+}) %>% do.call(rbind, .)
+
+# Removing extra columns and then re-adding based on trt_cps file
+db_cmap_matches <- db_cmap_matches %>% 
+  select(pert_id, pert_iname, drugbank_id) %>% 
+  left_join(., drugbank_data[,c("drugbank_id", "name")]) %>% 
+  distinct
+man_annots <- read_rds("data_raw/manual_lincs_drugbank_drug_annots.rds") # these were matches done manually 
+db_cmap_matches <- db_cmap_matches %>% filter(!pert_id %in% man_annots$pert_id)
+db_cmap_matches <- rbind(db_cmap_matches, man_annots)
+
+dbids_to_remove <- c("DB07159", "DB02507", "DB02731", "DB00452", "DB00624") # These are duplicates with extraneous DB IDs
+
+db_cmap_matches <- db_cmap_matches %>% filter(!drugbank_id %in% dbids_to_remove)
+
+# saveRDS(db_cmap_matches, file = 'GSE92742_perts_in_DrugBank_03-30-21.rds')
+
+```
+
 ## Performing the CMap analysis 
-
-
 
 ```{r}
 
@@ -490,15 +585,20 @@ trt_cp <- trt_cp[,meta_cols_to_keep]
 # right now it doesn't for the end result, it's just annoying have
 # what amounts to duplicate files. 
 drgbnk_db <- 
-  readRDS('data_raw/pert_overlap_cmap_drugbank_stitch.rds') %>% 
-  select(pert_id, pert_iname, drugbank_id) %>% 
+  readRDS('data_raw/GSE92742_perts_in_DrugBank_03-30-21.rds') %>% 
+  dplyr::select(pert_id, pert_iname, drugbank_id) %>% 
   na.omit %>% 
   distinct
 
 trt_cp <- inner_join(trt_cp, drgbnk_db)
 # saveRDS(trt_cp, "sig_id_drugbank_cmap_overlap.rds")
 
-load("gene_signatures_03-18-21.RData")
+load("data_raw/gene_signatures_03-18-21.RData")
+
+# This file was created by downloading the CMap contest data csv. It can be found at the clue.io data library under contests. 
+# The contest is entitled "CMap QUery Speedup Challenge" and the file is "sig_score_n476251x10174.csv.gz". It was then converted
+# into a gctx file to make reading it in chunks easier. 
+#TODO Add code for creating this file
 gctx_file <- '/zfs1/dtaylor/cmap_data/clue_test_data/sig_score_trt_cp_n204975x10174.gctx'
 cids <- read_gctx_meta(gctx_file,dim = "col") %>% pull
 gids <- read_gctx_meta(gctx_file,dim = "row") %>% pull
@@ -522,9 +622,8 @@ unweighted_res_sub <-
   }) %>% 
   bind_rows
 
-unweighted_random_res_sub[6:7] <- 
-  # map(1:nrow(gene_sets), function(i){
-  map(6:7, function(i){ # re-running 2 sigs because t
+unweighted_random_res_sub <- 
+  map(1:nrow(gene_sets), function(i){
     x <- gene_sets[i,]
     up_genes <- str_split(x[,2], pattern = ';') %>% unlist
     up_genes <- up_genes[up_genes %in% gids]
@@ -542,7 +641,10 @@ unweighted_random_res_sub[6:7] <-
 
 ### Calculating the p-values 
 ```{r}
-load("unweighted_cmap_res_db_sub_03-22-21.RData")
+
+# File not currently included in the data_raw dir because it's 10g. 
+#TODO make shrink and include this file 
+load("data_raw/unweighted_cmap_res_db_sub_03-22-21.RData")
 # Removing extra columns to save on mem
 unweighted_random_res_sub <- unweighted_random_res_sub %>% 
   map(function(x){
@@ -569,24 +671,26 @@ meta_cols_to_keep <-
   c("sig_id",
     "pert_id",
     "pert_iname")
+
 trt_cp <-
-  read_rds('../cmapAnalysis/GSE92742_inst_metadata.rds') %>% 
+  read_rds('data_raw/GSE92742_inst_metadata.rds') %>% 
   filter(pert_type == "trt_cp") %>% 
   distinct
 
 trt_cp <- trt_cp[,meta_cols_to_keep]
 
-load("../thesisAnalysis/gene_signatures_03-18-21.RData")
+load("data_raw/gene_signatures_03-18-21.RData")
 
 
-cmap_res <- read_rds("../thesisAnalysis/unweighted_res_sub_w_p-values_03-22-21.rds")
+cmap_res <- read_rds("data_raw/unweighted_res_sub_w_p-values_03-22-21.rds")
 # Fixing some issues with p-values, since I didn't divide by 
 # length. 
+#TODO fix this so the code isn't neccessary 
 cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(p_value=p_value/max(p_value))
 cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(fdr_p_value=p.adjust(p_value, method = 'fdr'))
 
 
-sig_idx_map <- read_csv("../thesisAnalysis/Data_file_S3_Gene_signatures.csv") %>% 
+sig_idx_map <- read_csv("data_raw/Data_file_S3_Gene_signatures.csv") %>% 
   select(1:3)
 names(sig_idx_map)[1] <- "sig_idx"
 
@@ -597,7 +701,7 @@ sig_cmap <- inner_join(trt_cp, cmap_res) %>%
   ungroup
 sig_cmap <- left_join(sig_cmap, sig_idx_map)
 
-drg_db <- read_rds("data-raw/GSE92742_perts_in_DrugBank_03-30-21.rds") 
+drg_db <- read_rds("data_raw/GSE92742_perts_in_DrugBank_03-30-21.rds") 
 sig_cmap <- left_join(sig_cmap, drg_db)
 
 sig_cmap <- sig_cmap %>% 
@@ -620,55 +724,7 @@ fdr05_tbl <- sig_cmap %>%
 ```
 
 
-## Creating database DrugBank LINCS 
-```{r}
-load('data-raw/Fen_drugbank_and_stitch_data.RData')
 
-drugbank_data <- 
-  drugbank_data[,2:10] %>% 
-  separate_rows(., Synonyms, sep = '\\|')
-names(drugbank_data) <- str_to_lower(names(drugbank_data))
-
-dd1 <- drugbank_data[,-3]
-names(dd1)[2] <- 'drug_name'
-dd2 <- drugbank_data[,-2]
-names(dd2)[2] <- 'drug_name'
-tmp_db_data <- 
-  rbind(dd1, dd2) %>% 
-  distinct 
-
-
-names(tmp_db_data)[which(names(tmp_db_data) == 'smiles')] <- 'canonical_smiles'
-names(tmp_db_data)[which(names(tmp_db_data) == 'pubchem_compound_id')] <- 'pubchem_cid'
-tmp_db_data$pert_iname <- str_to_lower(tmp_db_data$drug_name)
-
-cols_to_keep <- c('canonical_smiles', 'pubchem_cid', 'pert_iname')
-db_cmap_matches <- 
-  lapply(cols_to_keep, function(x){
-    db_sub <- 
-      tmp_db_data[,c('drugbank_id', x)] %>% 
-      na.omit %>% 
-      distinct
-    inner_join(tmp_map, db_sub, na_matches = "never")
-    # inner_join(trt_cps, db_sub, na_matches = "never")
-}) %>% do.call(rbind, .)
-# saveRDS(db_cmap_matches, file = 'GSE92742_perts_in_DrugBank.rds')
-
-# Removing extra columns and then re-adding based on trt_cps file
-db_cmap_matches <- db_cmap_matches %>% 
-  select(pert_id, pert_iname, drugbank_id) %>% 
-  left_join(., drugbank_data[,c("drugbank_id", "name")]) %>% 
-  distinct
-man_annots <- read_rds("manual_lincs_drugbank_drug_annots.rds")
-db_cmap_matches <- db_cmap_matches %>% filter(!pert_id %in% man_annots$pert_id)
-db_cmap_matches <- rbind(db_cmap_matches, man_annots)
-
-dbids_to_remove <- c("DB07159", "DB02507", "DB02731", "DB00452", "DB00624") # These are duplicates with extraneous DB IDs
-
-db_cmap_matches <- db_cmap_matches %>% filter(!drugbank_id %in% dbids_to_remove)
-
-# saveRDS(db_cmap_matches, file = 'GSE92742_perts_in_DrugBank_03-30-21.rds')
-```
 
 
 # Results 
@@ -1019,7 +1075,7 @@ library(flextable)
 library(officer)
 #TODO Refactor so this all uses the data files 
 sig_pth_res <- 
-  read_rds("lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
+  read_rds("data_raw/lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
   filter(adj.P.Val < .001)
 coef_nms <- c("PLI vs. N&S", "PF vs. N&S", "PF vs. PLI" ) %>% 
   setNames(.,unique(sig_pth_res$coefficient))
@@ -1027,23 +1083,23 @@ coef_nms <- c("PLI vs. N&S", "PF vs. N&S", "PF vs. PLI" ) %>%
 sig_pth_res$coefficient <- factor(coef_nms[sig_pth_res$coefficient], levels = coef_nms)
 
 #TODO Refactor this bit 
-fen_pths <- 
-  read_delim("NAFLD_progression2path_03-09-2021.txt", "\t", col_names = FALSE) %>% 
-  set_names(., c("fens_category", "id"))
+cat_pths <- 
+  read_delim("data_raw/NAFLD_progression2path_03-09-2021.txt", "\t", col_names = FALSE) %>% 
+  set_names(., c("nafld_category", "id"))
 
 #TODO Refactor this bit 
 pth_map <- 
-  read_delim("fens_categories.txt", ";", col_names = FALSE) %>% 
-  setNames(., c("fens_category", "disease_category"))
+  read_delim("data_raw/fens_categories.txt", ";", col_names = FALSE) %>% 
+  setNames(., c("nafld_category", "disease_category"))
 
-fen_pths <- left_join(fen_pths, pth_map)
-fen_pths$fens_category <- paste0("C", fen_pths$fens_category)
-# sig_pth_res <- left_join(sig_pth_res, fen_pths)
+cat_pths <- left_join(cat_pths, pth_map)
+cat_pths$nafld_category <- paste0("C", cat_pths$nafld_category)
+# sig_pth_res <- left_join(sig_pth_res, cat_pths)
 
-nafld_category <- split(fen_pths, fen_pths$id) %>% 
+nafld_category <- split(cat_pths, cat_pths$id) %>% 
   map(function(x){
     tmp_cats <-  x %>% 
-      pull(fens_category) %>% 
+      pull(nafld_category) %>% 
       paste0(., collapse = '|') %>% 
       enframe
   }) %>% rbind_named_df_list(., "id") %>% 
@@ -1054,7 +1110,7 @@ sig_pth_res <- left_join(sig_pth_res, nafld_category)
 
 #TODO File needs to be included somehow
 pth_refs <- 
-  read_excel("/Users/daniellefever/Desktop/Lans_Taylor_Lab/NAFLD_MPS/presentations_and_meetings/update_presentations/210312/pth_refs.xlsx", sheet = 1)
+  read_excel("data_raw/pth_refs.xlsx", sheet = 1)
 pth_refs <- pth_refs[,c(2,3)]
 
 pth_refs <-  split(pth_refs, pth_refs$pathway_id) %>% 
@@ -1092,7 +1148,7 @@ split_tbls <- split(tbl_data, tbl_data$coefficient) %>%
     return(tmp_tbl)
   })
 
-# write_csv(split_tbls[[1]], "foo.csv")
+
 
 ```
 
@@ -1101,26 +1157,26 @@ split_tbls <- split(tbl_data, tbl_data$coefficient) %>%
 ```{r}
 
 hier_kegg <- 
-  read_rds('data-raw/kegg_pathway_hierarchy.rds')
+  read_rds('data_raw/kegg_pathway_hierarchy.rds')
 
 #TODO refactor here 
-fen_pths <- 
-  read_delim("NAFLD_progression2path_03-09-2021.txt", 
+cat_pths <- 
+  read_delim("data_raw/NAFLD_progression2path_03-09-2021.txt", 
              "\t",
              col_names = FALSE) %>% 
-  set_names(., c("fens_category", "id"))
+  set_names(., c("nafld_category", "id"))
 
 pth_map <- 
-  read_delim("fens_categories.txt", ";", col_names = FALSE) %>% 
-  setNames(., c("fens_category", "disease_category"))
+  read_delim("data_raw/fens_categories.txt", ";", col_names = FALSE) %>% 
+  setNames(., c("nafld_category", "disease_category"))
 
-fen_pths <- left_join(fen_pths, pth_map)
-fen_pths$fens_category <- NULL
+cat_pths <- left_join(cat_pths, pth_map)
+cat_pths$nafld_category <- NULL
 
 
 kegg_df <- 
-  read_rds("c2_kegg_entrez_msigdb_v7.0_database.rds") %>% 
-  right_join(., fen_pths) %>% 
+  read_rds("data_raw/c2_kegg_entrez_msigdb_v7.0_database.rds") %>% 
+  right_join(., cat_pths) %>% 
   separate_rows(., entrezgene, sep = '\\|')
 
 per_gene_kegg <- split(kegg_df, kegg_df$entrezgene) %>% 
@@ -1168,7 +1224,7 @@ sig_gene_res <- sig_gene_res %>%
 cols_to_remove <- c("name", "category_id")
 
 sig_pth_res <- 
-  read_rds("lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
+  read_rds("data_raw/lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
   filter(adj.P.Val < .001) %>% 
   select(-cols_to_remove)
 
@@ -1180,7 +1236,7 @@ names(sig_pth_res)[4:5] <-  c("kegg_pathway_group", "kegg_pathway_subgroup")
 
 
 nafld_category <- 
-  read_delim("NAFLD_progression2path_03-09-2021.txt", 
+  read_delim("data_raw/NAFLD_progression2path_03-09-2021.txt", 
              "\t",
              col_names = FALSE) %>% 
   set_names(., c("nafld_categories", "id"))
@@ -1202,31 +1258,31 @@ sig_pth_res <- left_join(sig_pth_res, nafld_category)
 ### Data file S3
 03/31/21
 ```{r}
-load("gene_signatures_03-18-21.RData")
 
-old_gene_sigs <- read_csv("Data_file_S3_Gene_signatures.csv")
-
-sig_ids <- old_gene_sigs[,1:3]
+load("data_raw/gene_signatures_03-18-21.RData")
 
 
 
+gene_sig <- 
+  unweighted_gene_sig 
+gene_sig$sig_idx <- paste0("S", gene_sig$sig_idx)
+gene_sig$fens_category <- paste0("C", gene_sig$fens_category)
+gene_sig$coefficient <-  factor(gene_sig$coefficient)
+levels(gene_sig$coefficient) <-  c("PLI vs. N&S","PF vs. N&S",  "PF vs. PLI")
+names(gene_sig)[1:3] <- c("gene_sig_idx","comparison","nafld_pathway_category")
 
-new_gene_sig <- 
-  unweighted_gene_sig %>% 
-  select(-coefficient, -fens_category, -n_upreg, -n_downreg)
-new_gene_sig <- right_join(sig_ids, new_gene_sig)
 
 xx <- as.data.frame(org.Hs.eg.db::org.Hs.egSYMBOL) %>%
   setNames(., c("entrezgene", "gene_name"))
 
-upreg_sig <- new_gene_sig %>% select(-down_genes_entrez) %>% separate_rows(up_genes_entrez, sep=";")
+upreg_sig <- gene_sig %>% select(-down_genes_entrez) %>% separate_rows(up_genes_entrez, sep=";")
 names(upreg_sig)[4] <- "entrezgene"
 upreg_sig <- left_join(upreg_sig, xx) %>% 
   group_by(sig_idx, comparison, nafld_pathway_category) %>% 
   summarise(`up-regulated_gene_names`=paste(unique(gene_name), collapse = ";"),
             `up-regulated_entrez_ids`=paste(unique(entrezgene), collapse = ";"))
 
-downreg_sig <- new_gene_sig %>% select(-up_genes_entrez) %>% separate_rows(down_genes_entrez, sep=";")
+downreg_sig <- gene_sig %>% select(-up_genes_entrez) %>% separate_rows(down_genes_entrez, sep=";")
 names(downreg_sig)[4] <- "entrezgene"
 downreg_sig <- left_join(downreg_sig, xx) %>% 
   group_by(sig_idx, comparison, nafld_pathway_category) %>% 
@@ -1257,7 +1313,7 @@ cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(fdr_p_value=p.adjust(p_va
 names(cmap_res)[1] <- 'gene_sig_idx'
 cmap_res <- left_join(gene_sig_map, cmap_res)
 
-drg_tgts <- read_rds("data-raw/drugbank_db_metadata_v5.1.4.rds") %>% select(drugbank_id, targets) %>% distinct %>% na.omit
+drg_tgts <- read_rds("data_raw/drugbank_db_metadata_v5.1.4.rds") %>% select(drugbank_id, targets) %>% distinct %>% na.omit
 
 
 trt_cp <-
@@ -1266,7 +1322,7 @@ trt_cp <-
   select(sig_id, pert_id, pert_iname) %>% 
   distinct 
 
-annots <- read_rds("data-raw/GSE92742_perts_in_DrugBank_03-30-21.rds")
+annots <- read_rds("data_raw/GSE92742_perts_in_DrugBank_03-30-21.rds")
 trt_cp <- inner_join(trt_cp, annots)
 
 out_res <- cmap_res %>% filter(abs(cmap_score) > 0)
