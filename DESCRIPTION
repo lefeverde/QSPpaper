@@ -1,6 +1,6 @@
 Package: QSPpaper
 Title: Analysis notebooks and functions for NAFLD QSP paper
-Version: 0.0.2.9000
+Version: 0.1.0.0
 Authors@R:
     person(given = "Daniel",
            family = "Lefever",
