@@ -723,6 +723,78 @@ fdr05_tbl <- sig_cmap %>%
 
 ```
 
+## Network proximity 
+The python code for this portion of the analysis can be downloaded from this [repo](https://github.com/emreg00/toolbox). I ran everything in a local directory with the package. 
+
+### Creating a file of the drug targets
+```{r}
+
+
+drug_list <- read_rds("data_raw/manual_lincs_drugbank_drug_annots.rds")
+perts <- read_rds("data_raw/GSE92742_perts_in_DrugBank_03-30-21.rds")
+drugbank_data <- 
+  read_rds("data_raw/drugbank_db_metadata_v5.1.4.rds") %>% 
+  select(drugbank_id, targets) %>% 
+  separate_rows(targets, sep ="\\|") 
+  
+names(drugbank_data)[2] <- "gene_name"
+drugbank_data$gene_name <- gsub('\\-', '', drugbank_data$gene_name)
+
+xx <- as.data.frame(org.Hs.eg.db::org.Hs.egALIAS2EG) %>%
+  setNames(., c("entrezgene", "gene_name"))
+drugbank_data <- left_join(drugbank_data, xx) %>% na.omit
+drug_list <- left_join(drug_list, drugbank_data)
+
+as_tgts <-  paste(c("5599", "5602", "4293", "5601"), collapse = ';' )
+as_tgts <- tibble(drug_name= "AS-601245", targets=as_tgts)
+
+drug_list$fixed_drug_names <- drug_list$pert_iname
+drug_list$fixed_drug_names[str_detect(drug_list$pert_iname, "BR")] <- drug_list$name[str_detect(drug_list$pert_iname, "BR")]
+drug_list <- drug_list %>% filter(drugbank_id !="DB08022")
+
+out_list <- split(drug_list, drug_list$fixed_drug_names) %>% 
+    map(function(x){
+        tmp_genes <- unique(x$entrezgene)
+        enframe(paste(tmp_genes, collapse = ';'),value = 'targets')
+    }) %>% rbind_named_df_list(., "drug_name")
+
+out_list$name <- NULL
+out_list <- rbind(out_list, as_tgts)
+
+# write_csv(out_list, "targets_from_top_cmap_drugs_03-27-21.csv")
+```
+
+### Calculating network proximity 
+Again the python code can be found [here](https://github.com/emreg00/toolbox). I excuted in this in the top-level dir for this package.
+```{python}
+import random
+import toolbox
+from toolbox import wrappers
+
+# Loading the data 
+drug_targets = [i.strip().split(',') for i in open("targets_from_top_cmap_drugs_03-27-21.csv")] 
+drug_targets = drug_targets[1:]
+network = wrappers.get_network("biosnap_liver_ppi_network.txt", only_lcc = True)
+degs = [i.strip() for i in open("updated_degs_in_network.txt")]
+
+# Running analysis and writing results 
+with open("network_proximity_results_03-27-21.csv", "w+") as f: 
+    hd = "db_id,d,z,mean,sd\n"
+    f.write(hd)
+    for i in drug_targets:
+        db_id = i[0]
+        targets = i[1].split(';')
+        print(i)
+        try:
+            d, z, tmp_val = wrappers.calculate_proximity(network, targets, degs,  min_bin_size=90)
+            out_line = [db_id, d, z, tmp_val[0], tmp_val[1]]
+            out_line = [str(i) for i in out_line]
+            out_line = ','.join(out_line)
+            f.write(out_line + '\n')
+        except:
+            continue
+
+```
 
 
 
