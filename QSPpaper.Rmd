@@ -10,10 +10,11 @@ editor_options:
 ---
 
 # TODO list
-Create example data frames of data not included due to licensing 
-Create README
-Automate code testing
-Consolidate my packages and add in any documentation
+Create example data frames of data not included due to licensing -> Done
+Consolidate my packages and add in any documentation -> In progress
+Create README -> Not started
+Automate code testing -> Might be too time consuming
+
 
 
 # Overview
@@ -724,14 +725,56 @@ fdr05_tbl <- sig_cmap %>%
 ```
 
 ## Network proximity 
-The python code for this portion of the analysis can be downloaded from this [repo](https://github.com/emreg00/toolbox). I ran everything in a local directory with the package. 
+The python code for this portion of the analysis can be downloaded from this [repo](https://github.com/emreg00/toolbox). I ran everything in a local directory with the package. The BioSnap PPI network can be downloaded from [here](https://snap.stanford.edu/biodata/datasets/10013/10013-PPT-Ohmnet.html). 
+
+### Getting DEGs which are in the NAFLD subnetwork
+```{r}
+
+
+biosnap <- read_rds("data-raw/PPT-Ohmnet_edgelist_liver.rds")
+# write_csv(biosnap, "biosnap_liver_ppi_network.txt")
+bsp_genes <- do.call(c, biosnap[,1:2]) %>% unique
+
+nafld_associated_pths <- 
+  c("Non-alcoholic fatty liver disease (NAFLD)",
+    "TNF signaling pathway", 
+    "Insulin signaling pathway",
+    "Type II diabetes mellitus", 
+    "PI3K-Akt signaling pathway",
+    "Adipocytokine signaling pathway", 
+    "PPAR signaling pathway",
+    "Fatty acid biosynthesis",
+    "Protein processing in endoplasmic reticulum",
+    "Oxidative phosphorylation",
+    "Apoptosis") 
+
+kegg_data <- read_rds("data-raw/kegg_pathway_entrezgene.rds") %>% 
+  setNames(., c("id", "entrezgene"))
+kegg_data <- left_join(kegg_data, read_rds("data-raw/kegg_pathway_hierarchy.rds"))
+
+gene_res <- read_rds("gene_res_from_clusters.rds") %>% 
+  filter(adj.P.Val < .001)
+
+nap_genes <- kegg_data %>% 
+  filter(description %in% nafld_associated_pths) %>% 
+  pull(entrezgene) %>% 
+  unique()
+
+
+
+degs_to_keep <- gene_res %>% filter(entrezgene %in% nap_genes) %>% pull(entrezgene) %>% unique() %>% as.character
+degs_to_keep <- degs_to_keep[degs_to_keep %in% bsp_genes]
+#write(degs_to_keep, file = "updated_degs_in_network.txt")
+
+
+```
 
 ### Creating a file of the drug targets
 ```{r}
 
 
 drug_list <- read_rds("data_raw/manual_lincs_drugbank_drug_annots.rds")
-perts <- read_rds("data_raw/GSE92742_perts_in_DrugBank_03-30-21.rds")
+
 drugbank_data <- 
   read_rds("data_raw/drugbank_db_metadata_v5.1.4.rds") %>% 
   select(drugbank_id, targets) %>% 
@@ -765,7 +808,8 @@ out_list <- rbind(out_list, as_tgts)
 ```
 
 ### Calculating network proximity 
-Again the python code can be found [here](https://github.com/emreg00/toolbox). I excuted in this in the top-level dir for this package.
+Again the python code can be found [here](https://github.com/emreg00/toolbox). I excuted in this in the top-level dir of this repo. 
+
 ```{python}
 import random
 import toolbox
@@ -853,7 +897,7 @@ bmi <- anno_barplot(annot_map['Bmi_surg'],
                                       at=c(30, 90 ),
                                       gp=gpar(fontsize = 4.5, fontface='bold')))
 
-
+#TODO fix missing ha section 07/08/21
 tmp_ht <-
   Heatmap(tmp_data, 
           # Column args
