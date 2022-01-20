@@ -11,7 +11,7 @@ uniquefy_res_by_group(
 )
 }
 \arguments{
-\item{res_df}{a tidy results data.frame (see \code{\link[basicOmics]{get_limma_results}})}
+\item{res_df}{a tidy results data.frame (see \code{\link[delutils]{get_limma_results}})}
 
 \item{group_col}{column with duplicates}
 

@@ -7,7 +7,7 @@
 kegg_gsea_by_coef(res_df, nPerm = 10000, pvalueCutoff = 0.1)
 }
 \arguments{
-\item{res_df}{a tidy results data.frame of genes (see \code{\link[basicOmics]{get_limma_results}})}
+\item{res_df}{a tidy results data.frame of genes (see \code{\link[delutils]{get_limma_results}})}
 
 \item{nPerm}{number of permutations to run}
 

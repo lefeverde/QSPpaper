@@ -51,6 +51,11 @@ gctx_to_sigList <- function(gctx_file, cids, decreasing_order=TRUE){
 #' @examples
 broad_cmap_score <- function(up_genes, down_genes, drug_sig_vec){
 
+  # Checks if the vectors are sorted in Descending order by
+  # sign fliping and checks if vals are from smallest to greatest
+  assort_check <- !is.unsorted(drug_sig_vec*-1)
+  stopifnot("drug_sig_vec is not in descending order" = assort_check)
+
   up_gene_idx <-
     match(up_genes, names(drug_sig_vec)) %>%
     na.omit
@@ -87,6 +92,9 @@ broad_cmap_score <- function(up_genes, down_genes, drug_sig_vec){
 #'
 #' @examples
 single_broad_wrapper <- function(up_genes, down_genes, drug_sig_list, n_cores){
+
+
+
   es_list <- mclapply(seq_along(drug_sig_list), function(i){
     nm <- names(drug_sig_list)[i]
     x <- drug_sig_list[[i]]
@@ -101,7 +109,10 @@ single_broad_wrapper <- function(up_genes, down_genes, drug_sig_list, n_cores){
   return(es_list)
 }
 
-
+.sort_check <- function(drug_sig_vec){
+  out <- is.unsorted(rev(drug_sig_vec))
+  return(out)
+}
 
 #' Wrapper to run the \code{\link{broad_cmap_score}} for many gene sets
 #'
@@ -298,7 +309,7 @@ get_random_cmap_scores <- function(up_genes, down_genes, gctx_file, cids=NULL, n
   cmap_scores <- map(sorted_permute_df, function(x){
     # loads chunk
     sig_list <-
-      gctx_to_sigList(gctx_file, x$sig_id, decreasing_order = FALSE)
+      gctx_to_sigList(gctx_file, x$sig_id, decreasing_order = TRUE)
     # Use sig name for key
     sig_ids <- names(sig_list)
     random_scores <- mclapply(sig_ids, function(nm){
@@ -359,7 +370,7 @@ add_p_vals_to_cmap_single <- function(cmap_res, perm_res){
       y_length <- length(y$cmap_score)
       p_value <- x_scores %>%
         map_dbl(function(score){
-          sum(y_scores >= score)
+          sum(y_scores >= score)/y_length
         })
       fdr_p_value <- p.adjust(p_value, method = 'fdr')
       out_df <- cbind(x, p_value, fdr_p_value)
@@ -391,7 +402,7 @@ add_p_vals_to_cmap_para <- function(cmap_res, perm_res){
       y_length <- length(y$cmap_score)
       p_value <- x_scores %>%
         future_map_dbl(function(score){
-          sum(y_scores >= score)
+          sum(y_scores >= score)/y_length
         })
       fdr_p_value <- p.adjust(p_value, method = 'fdr')
       out_df <- cbind(x, p_value, fdr_p_value)

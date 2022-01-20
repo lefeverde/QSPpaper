@@ -1,6 +1,6 @@
 #' Wrapper to do GSEA on tidy results
 #'
-#' @param res_df a tidy results data.frame of genes (see \code{\link[basicOmics]{get_limma_results}})
+#' @param res_df a tidy results data.frame of genes (see \code{\link[delutils]{get_limma_results}})
 #' @param nPerm number of permutations to run
 #' @param pvalueCutoff p-value cutoff of output to retain
 #'

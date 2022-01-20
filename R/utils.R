@@ -14,11 +14,11 @@ chunker <- function(x, num_chunks=3){
 
 #' Uniquefys a res df by group by taking absolute max
 #'
-#' @param res_df a tidy results data.frame (see \code{\link[basicOmics]{get_limma_results}})
+#' @param res_df a tidy results data.frame (see \code{\link[delutils]{get_limma_results}})
 #' @param group_col  column with duplicates
 #' @param val_col column of unique values
 #'
-#' @importFrom basicOmics uniquefy_by_abs_max
+#' @importFrom delutils uniquefy_by_abs_max
 #'
 #' @return a uniquefyd results data.frame
 #' @export

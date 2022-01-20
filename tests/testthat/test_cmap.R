@@ -26,7 +26,7 @@ test_res <- readRDS(test_res)
 
 test_sig <-
   seq(-10, 10) %>%
-  sort(., decreasing = FALSE) %>%
+  sort(., decreasing = TRUE) %>%
   setNames(., paste0("G", seq(0, 20)))
 
 test_that("broad_cmap_score works when up & down gene sets give same score ", {
@@ -77,4 +77,15 @@ test_that("single_broad_wrapper returns the correct CMap results",{
   e_res <- test_res %>% arrange(cmap_score)
   expect_equal(as.data.frame(e_res), as.data.frame(o_res), tolerance=.001)
 
+})
+
+test_that("single_broad_wrapper fails when given and incorrectly sorted vector", {
+  drug_sig_vec <- drug_vec_list[[1]]
+  err <- "drug_sig_vec is not in descending order"
+  set.seed(42)
+  random_order <- sample(drug_sig_vec, size=length(drug_sig_vec))
+  asc_order <- sort(drug_sig_vec, decreasing = FALSE)
+
+  expect_error(broad_cmap_score(up_genes, down_genes, random_order), err)
+  expect_error(broad_cmap_score(up_genes, down_genes, asc_order), err)
 })
