@@ -1,62 +1,76 @@
 ---
 title: Analysis code used for the QSP NAFLD paper
 output:
-  pdf_document: default
-  html_notebook: default
   html_document:
     df_print: paged
+    toc: true
+    toc_depth: 5
+    toc_float: true
+  html_notebook: default
+  pdf_document: default
 editor_options:
   chunk_output_type: console
+
 ---
 
-# TODO list
-Create example data frames of data not included due to licensing -> Done
-Consolidate my packages and add in any documentation -> In progress
-Create README -> Not started
-Automate code testing -> Might be too time consuming
+
 
 
 
 # Overview
-The first section, [Analysis](#Analysis) has the code used in the computational analsyis of [@QSPpaper]. Intermediate data files are stored throughout the notebook as commented out `RDS` files. These are typically saved when creating the intermediate data is both/or time consuming or used at branch points within the analysis. Some of the code chunks rely on functions from my personal packages which are not on `CRAN` or `BioConductor` installed from github. 
+The first section, [Analysis](#Analysis) has the code used in the computational analsyis of [@QSPpaper]. Intermediate data files are stored throughout the notebook as commented out `RDS` files. These are typically saved when creating the intermediate data is time consuming and/or used at branch points within the analysis. Some of the code chunks rely on functions from my personal packages which are not on `CRAN` or `BioConductor` installed from github. 
 
-The second section [Results](#Results) contain the code used to create the tables, figures, and data files for this paper.  
+The second section [Results](#Results) contain the code used to create the tables, figures, and data files for this paper. Figures and tables created by hand are not included. 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(eval = FALSE)
 ```
 
-# Analysis 
-## Installing my packages
+# Analysis {#Analysis}
+
+## Pre-requisites
+### Installing my packages
 ```{r}
 
 require(devtools)
 
 # My package(s)
-my_pkgs <- c("lefutils", "basicOmics")
+my_pkgs <- c("delutils")
 
 if(!any(my_pkgs %in% row.names(installed.packages()))){
  devtools::install_github(paste0("lefeverde/", my_pkgs))
 }
 
 ```
-## Loading required packages
-```{r}
-require(tidyverse)
-require(biomaRt)
-require(matrixStats)
-require(edgeR)
-require(reshape2)
-require(ggplot2)
-require(lefutils)
-require(basicOmics)
 
-require(limma)
-require(sva)
-require(GSVA)
-require(dendextend)
+
+### Required cran and bioconductor packages
+Checks for missing packages and then installs if not found. 
+```{r}
+
+inst_packages <- row.names(installed.packages())
+cran_packages <- c("tidyverse", "reshape2", "ggplot2", "matrixStats", "dendextend")
+miss_cran <- cran_packages[!cran_packages %in%  inst_packages]
+if(length(miss_cran) > 0){
+ install.packages(miss_cran)
+}
+
+if(!require("BiocManager", quietly = TRUE)){
+  install.packages("BiocManager")
+}
+
+
+bioc_packages <- c("biomaRt", "limma", "sva", "GSVA", "cmapR")
+miss_bioc <- bioc_packages[!bioc_packages %in% inst_packages]
+if(length(miss_bioc) > 0){
+ BiocManager::install(bioc_packages)
+}
+
 
 ```
+
+
+
 
 
 
@@ -64,8 +78,8 @@ require(dendextend)
 ### Creating gene metadata
 ```{r}
 
-#TODO ask DiStefano about including this data
-gene_dir <- 'data_raw/DiStefano_raw_data/kallisto/'
+
+gene_dir <- 'DiStefano_raw_data/kallisto/'
 
 # Getting ENS ids from 1st tsv
 ens_trans <- 
@@ -83,7 +97,8 @@ attributes <- c("ensembl_gene_id", "ensembl_transcript_id")
 ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl", version=94)
 
 tx2gene <-  getBM(attributes, "ensembl_transcript_id", ens_trans, ensembl)
-# saveRDS(tx2gene, "data_raw/tx2gene.rds")
+tx2gene <- tx2gene[,c(2,1)]
+# saveRDS(tx2gene, "tx2gene.rds")
 
 attributes <- c("ensembl_gene_id",
                 "external_gene_name",
@@ -92,22 +107,23 @@ attributes <- c("ensembl_gene_id",
 
 ens_genes <- unique(tx2gene$ensembl_gene_id)
 gene_annots <- getBM(attributes, "ensembl_gene_id", ens_genes, ensembl)
-#save(gene_annots, file = "data_raw/gene_annots.RData")
+#save(gene_annots, file = "gene_annots.RData")
 
 ```
 
 ### Creating initial txi object
 ```{r}
-
-tx2gene <- readRDS("data_raw/tx2gene.rds")
-p <- readRDS('data_raw/DiStefano_raw_data/pdata.rds')
+library(tximport)
+tx2gene <- readRDS("tx2gene.rds")
+p <- readRDS('DiStefano_raw_data/pdata.rds')
 files <- 
   paste0(p$file_name, '.gz') %>% 
-  paste0('data_raw/DiStefano_raw_data/kallisto/', .)
+  paste0('DiStefano_raw_data/kallisto/', .)
 names(files) <- row.names(p)
 txi <- tximport(files, type = 'kallisto', tx2gene = tx2gene, ignoreTxVersion = T, countsFromAbundance = 'lengthScaledTPM')
 
-#saveRDS(list(p, txi), file='data_raw/DiStefano_txi_and_p_192.rds')
+#saveRDS(list(p, txi), file='DiStefano_txi_and_p_192.rds')
+
 ```
 
 
@@ -117,7 +133,7 @@ txi <- tximport(files, type = 'kallisto', tx2gene = tx2gene, ignoreTxVersion = T
 
 sex_linked_genes <- c('ENSG00000131002', 'ENSG00000183878', 'ENSG00000067048')
 
-txi_n192 <- readRDS('data_raw/DiStefano_txi_and_p_192.rds')
+txi_n192 <- readRDS('DiStefano_txi_and_p_192.rds')
 p192 <- txi_n192[[1]]
 txi_n192 <- txi_n192[[2]]
 cnts <- txi_n192$counts
@@ -168,18 +184,18 @@ suspicious_samples <- list(
 suspicious_samples <- 
   c("DLDR_0189","DLDR_0031","DLDR_0022","DLDR_0017","DLDR_0131", "DLDR_0130","DLDR_0140","DLDR_0122","DLDR_0123","DLDR_0111")
 
-load('data_raw/tx2gene.RData')
-p192 <- readRDS('data_raw/DiStefano_raw_data/pdata.rds')
+load('tx2gene.RData')
+p192 <- readRDS('DiStefano_raw_data/pdata.rds')
 p <- p192 %>%
   dplyr::filter(., !dcl_patient_id %in% suspicious_samples)
 row.names(p) <- p$dcl_patient_id
 
 files <- 
   paste0(p$file_name, '.gz') %>% 
-  paste0('data_raw/DiStefano_raw_data/kallisto/', .)
+  paste0('DiStefano_raw_data/kallisto/', .)
 names(files) <- row.names(p)
 txi <- tximport(files, type = 'kallisto', tx2gene = tx2gene, ignoreTxVersion = T, countsFromAbundance = 'lengthScaledTPM')
-#saveRDS(list(p, txi), file='DiStefano_txi_and_p_182.rds')
+# saveRDS(list(p, txi), file='DiStefano_txi_and_p_182.rds')
 
 
 ```
@@ -187,12 +203,12 @@ txi <- tximport(files, type = 'kallisto', tx2gene = tx2gene, ignoreTxVersion = T
 ### Creating cleaned expression matrix object and running SVA
 ```{r}
 
-load('data_raw/gene_annots.RData')
-txi_list <- readRDS('data_raw/DiStefano_txi_and_p_182.rds')
+load('gene_annots.RData')
+txi_list <- readRDS('DiStefano_txi_and_p_182.rds')
 p <- txi_list[[1]]
 txi <- txi_list[[2]]
 
-mod <- basicOmics::better_model_matrix(~0 + diagnosis, data=p)
+mod <- delutils::better_model_matrix(~0 + diagnosis, data=p)
 mod0 <- model.matrix(~1, data=p )
 dge <- edgeR::DGEList(counts =  txi$counts, 
                       samples = p,
@@ -204,12 +220,36 @@ dge <- dge[!is.na(dge$genes$entrezgene),]
 
 v <- voom(dge, mod, normalize.method = 'quantile')
 svobj <- sva(v$E, mod=mod, mod0=mod0)
-# saveRDS(list(v, svobj), 'data_raw/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')
+# saveRDS(list(v, svobj), 'DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')
+
+```
+
+### PCA plots identifying batch effect and correction via SVA {#pca}
+```{r}
+
+library(cowplot)
+v <-  read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
+svobj <- read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
+
+p <-  v$targets
+
+mod <- better_model_matrix(~0 + group, data=p)
+mod0 <- model.matrix(~1, data=p)
+
+e_rm <- removeBatchEffect(v$E, covariates = svobj$sv, design = mod)
+
+plt1 <- pca_plotter(v$E, p['group'])  + labs( title="Unadjusted") + theme(plot.title = element_text(hjust = 0.5, face="bold", size=20))
+ggsave("unadjusted_pca_plot.png", plt1, width = 6, height = 6, dpi = 600)
+
+
+plt2 <-  pca_plotter(e_rm, p['group'])  + labs( title="SVA adjusted") + theme(plot.title = element_text(hjust = 0.5, face="bold", size=20), aspect.ratio = 1)
+leg <- get_legend(plt2)
+
 
 ```
 
 
-## GSVA pathway cluster analysis
+## GSVA pathway cluster analysis {#cluster}
 ### Loading KEGG metadata
 These files are not going to be included because of licensing issues with KEGG. The MSigDB pathways can be found at this [link](https://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/MSigDB_v7.0_Release_Notes).
 
@@ -218,10 +258,10 @@ These files are not going to be included because of licensing issues with KEGG. 
 # This file wont be included due to licensing but can be obtained from here:
 # https://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/MSigDB_v7.0_Release_Notes
 # The uncommented code has example data. 
-#TODO Add code for creation of this tibble 
+
 pth_data <- 
-  # read_rds('../reference_files/msigdb_v7.0/msigdb_v7.0_all_tibble.rds') %>% 
-  read_rds("data_raw/example_msigdb_v7.0_all_tibble.rds") 
+  read_rds('../../reference_files/msigdb_v7.0/msigdb_v7.0_all_tibble.rds') %>%
+  # read_rds("example_msigdb_v7.0_all_tibble.rds")
   filter(SUB_CATEGORY_CODE == "CP:KEGG") %>% 
   dplyr::select(STANDARD_NAME,EXACT_SOURCE) %>% 
   setNames(., c('name','id')) 
@@ -236,8 +276,8 @@ pth_data <- pth_data %>% filter(!name %in% pths_to_remove)
 # These files can be found at the following link https://www.genome.jp/kegg-bin/get_htext?br08902 by using the search function 
 # and downloading and parsing the jsons. The uncommented code has example data. 
 hier_kegg <- 
-  # read_rds('../thesisAnalysis/data_raw/kegg_pathway_hierarchy.rds') %>% 
-  read_rds("data_raw/example_kegg_pathway_hierarchy.rds")
+  read_rds('../../thesisAnalysis/data-raw/kegg_pathway_hierarchy.rds') %>%
+  # read_rds("example_kegg_pathway_hierarchy.rds") %>% 
   left_join(pth_data, .) %>% 
   arrange(category_level_1)
 
@@ -245,8 +285,8 @@ hier_kegg <-
 # File can be directly downloaded from the link: https://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/MSigDB_v7.0_Release_Notes
 # 
 cp_kegg <- 
-  # '../reference_files/msigdb_v7.0/c2_kegg_entrez_msigdb_v7.0.gmt' %>% 
-  "data_raw/example_c2_kegg_entrez_msigdb_v7.0.gmt" %>% 
+  '../../reference_files/msigdb_v7.0/c2_kegg_entrez_msigdb_v7.0.gmt' %>%
+  # "example_c2_kegg_entrez_msigdb_v7.0.gmt" %>%
   clusterProfiler::read.gmt(.) %>% 
   filter(term %in% hier_kegg$name) %>% 
   split(., .$term) %>% 
@@ -254,6 +294,13 @@ cp_kegg <-
     x$gene
   })
 
+c2_kegg <-   "../../reference_files/msigdb_v7.0/c2_kegg_entrez_msigdb_v7.0.gmt" %>%
+  clusterProfiler::read.gmt(.) %>% 
+  group_by(term) %>% 
+  summarise(entrezgene=paste(gene, collapse = "|")) %>% 
+  rename(name="term") %>% 
+  inner_join(hier_kegg, .)
+# saveRDS(c2_kegg, file = "c2_kegg_entrez_msigdb_v7.0_database.rds")
 
 kegg_annots <-  
   hier_kegg$category_level_1 %>% set_names(., hier_kegg$name)
@@ -262,13 +309,13 @@ kegg_annots <-
 ```
 
 ### Loading and pre-processing gene expression data 
-Since I'm going run GSVA, I'm removing the batch effects predicted by SVA instead of including them in the downstream deferentially enriched pathway analysis. This is because the SVA matrix will be the wrong size. I'm also uniquefying the genes by variance. In other words, of the genes which match to the same entrez gene ID, I'm choosing the one that has the most variance.
+Since I'm going run GSVA, I'm removing the batch effects predicted by SVA instead of including them in the downstream deferentially enriched pathway analysis. I'm also uniquefying the genes by variance. In other words, of the genes which match to the same entrez gene ID, I'm choosing the one that has the most variance.
 
 ```{r}
-load('data_raw/gene_annots.RData') 
+load('gene_annots.RData') 
 
-v <-  read_rds('data_raw/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
-svobj <- read_rds('data_raw/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
+v <-  read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
+svobj <- read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
 p <-  v$targets
 
 e_rm <- 
@@ -290,11 +337,13 @@ I'm converting the gene x patient expression matrix into a pathway x patient enr
 
 ```{r}
 
+library(GSVA)
 gsva_res_sva <- 
   gsva(e_rm, cp_kegg, method='gsva',  min.sz=1, max.sz=100000)
+gsva_res_sva <- gsva_res_sva[names(kegg_annots),row.names(p)]
+# saveRDS(gsva_res_sva, "gsva_enrichment_matrix_sva.rds")
 
-
-tmp_data <- gsva_res_sva[names(kegg_annots),row.names(p)]
+tmp_data <- gsva_res_sva
 
 # Scaling row wise
 tmp_data <-
@@ -305,15 +354,19 @@ col_clust <-
   as.dist(1 - cor(tmp_data, method = 'pearson')) %>% 
   hclust(., "ward.D2")
 
+coefs_from_clusters <-  dendextend::cutree(col_clust, 3, order_clusters_as_data=FALSE) %>% 
+  paste0("c", .)
+coefs_from_clusters <- tibble(sample_id=col_clust$labels, cluster_idx=coefs_from_clusters)
 
+# saveRDS(coefs_from_clusters, file = "coefs_from_clusters.rds")
 
 ```
 
-#### Showing a dendrogram of the results
+### Showing a dendrogram of the results
 This chunk just creates a dendrogram of the clustering, like the one in figure 2. First, I create a color map of the different diagnoses, then the actual plot itself
 
 ```{r}
-
+library(dendextend)
 library(RColorBrewer)
 colours <- brewer.pal(n = 7, name = "Paired")
 
@@ -369,32 +422,21 @@ plot(dend)
 ```
 
 
-### Creating new groups based on clustering
-I'm cutting the dendogram at the 3rd level, since 3 distinct clusters naturally form (see figure 2 and previous section). This is used to create new groupings of the samples (see methods section of paper).
 
-Apparently the default `cutree` will sort the clusters by number of items in each cluster. This is different than `ComplexHeatmap`. The `dendextend` version has an option to turn this "feature" off. To do this, set the confusingly named argument `order_clusters_as_data` to `FALSE`. 
 
+## DEG and pathway analysis 
+### Pairwise comparisons using the cluster defined patient groupings
+These 2 sections use cluster defined patient groupings identified in [GSVA Cluster analysis section]{#cluster}. Basically, limma-voom is performed the normal way except that the groupings were identified by the cluster analysis. 
+
+### Identifying differentially enriched pathways 
 ```{r}
 
-coefs_from_clusters <- 
-  dendextend::cutree(col_clust, 3, order_clusters_as_data=FALSE) %>% 
-  enframe %>% 
-  as.data.frame %>% 
-  setNames(., c('sample_id', "cluster_idx"))
-coefs_from_clusters$cluster_idx <- paste0('c', coefs_from_clusters$cluster_idx)
-coefs_from_clusters$cluster_idx <- 
-  factor(coefs_from_clusters$cluster_idx, levels = unique(coefs_from_clusters$cluster_idx))
-row.names(coefs_from_clusters) <- coefs_from_clusters$sample_id
-coefs_from_clusters$sample_id <- NULL
-lvls <- levels(coefs_from_clusters$cluster_idx)
-
-```
-
-### Running LIMMA-VOOM using the new groupings
-#### Identifying differentially enriched pathways 
-```{r}
+gsva_res_sva <- read_rds("gsva_enrichment_matrix_sva.rds") 
 
 group_cont <- c("c2-c1", "c3-c1", "c3-c2")
+
+coefs_from_clusters <- read_rds("coefs_from_clusters.rds") 
+
 
 mod <- 
   better_model_matrix(~0 + cluster_idx, data = coefs_from_clusters)
@@ -412,11 +454,13 @@ res <- get_limma_results(fit, group_cont)
 names(res)[2] <- 'name'
 res <- right_join( hier_kegg, res)
 
-# saveRDS(res, 'lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds')
+# saveRDS(res, 'clust_gsva_path_res.rds')
 
 ```
 
-#### Identifying differentially expressed genes
+### Identifying differentially expressed genes
+Same cluster based groups identified in the [GSVA Cluster analysis section]{#cluster} are used here to identify differentially expressed genes. 
+
 ```{r}
 fit <-   
   lmFit(v, data.frame(mod)) %>% 
@@ -424,27 +468,274 @@ fit <-
   eBayes
 
 res <- get_limma_results(fit, group_cont)
-# saveRDS(res, "gene_res_from_clusters.rds")
+# saveRDS(res, "clust_gene_res.rds")
 
 ```
 
+## Pairwise comparisons using the clinical labels
+These analyses are performed using the clinical groupings defined in the patient metadata. 
+
+### Identifying differentially enriched pathways 
+```{r}
+
+p <-  v$targets 
+mod <- 
+  better_model_matrix(~0 + group, data = p)
+
+
+gsva_res_sva <- read_rds("gsva_enrichment_matrix_sva.rds") 
+
+group_cont <- c('Lob-(NORMAL+STEATOSIS)/2','Fibrosis-(NORMAL+STEATOSIS)/2','Fibrosis-Lob')
+
+cont_mod <- 
+  makeContrasts(contrasts = group_cont, levels=data.frame(mod, check.names = FALSE))
+
+fit <-  t(scale(t(gsva_res_sva))) %>% # Row scaling
+  lmFit(., data.frame(mod)) %>% 
+  contrasts.fit(., cont_mod) %>% 
+  eBayes
+
+
+res <- get_limma_results(fit, group_cont)
+names(res)[2] <- 'name'
+res <- right_join( hier_kegg, res)
+# saveRDS(res, "clin_gsva_path_res.rds")
+
+
+
+
+```
+
+
+### Identifying differentially expressed genes
+```{r}
+
+v <-  read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
+svobj <- read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
+
+p <-  v$targets
+
+group_cont <- c('Lob-(NORMAL+STEATOSIS)/2','Fibrosis-(NORMAL+STEATOSIS)/2','Fibrosis-Lob')
+
+mod <- 
+  better_model_matrix(~0 + group, data = p)
+
+modSV <- cbind(mod, svobj$sv)
+
+cont_mod <- makeContrasts(contrasts = group_cont, levels=data.frame(modSV, check.names = FALSE))
+fit_sva <-   
+  lmFit(v, data.frame(modSV)) %>%
+  contrasts.fit(., cont_mod) %>% 
+  eBayes
+
+res_sva <- get_limma_results(fit_sva, group_cont)
+# saveRDS(res_sva, "clin_gene_res.rds")
+
+
+```
+
+## Microarray meta-analysis {#micro}
+### Obtaining pathways
+
+```{r}
+
+library(Biobase)
+Sys.setenv(VROOM_CONNECTION_SIZE=1310720)
+filt_esets <- c("GSE48452", "GSE49541", "GSE89632") %>% 
+  map(function(x){
+    cur_geo <- GEOquery::getGEO(x, AnnotGPL = TRUE)[[1]]
+})
+nm_to_fix <- which(grepl("group", names(pData(filt_esets[[1]]))))
+names(pData(filt_esets[[1]]))[nm_to_fix] <- "group"
+pData(filt_esets[[1]])$group <- sub(" ", "_", pData(filt_esets[[1]])$group) %>% str_to_upper
+
+nm_to_fix <- which(grepl("Stage", names(pData(filt_esets[[2]]))))
+names(pData(filt_esets[[2]]))[nm_to_fix] <- "group"
+pData(filt_esets[[2]])$group <-  str_split(pData(filt_esets[[2]])$group, ' ') %>% map(1) %>% unlist
+
+
+nm_to_fix <- which(names(pData(filt_esets[[3]])) == "characteristics_ch1.1")
+names(pData(filt_esets[[3]]))[nm_to_fix] <- "group"
+pData(filt_esets[[3]])$group <-  str_split(pData(filt_esets[[3]])$group, ': ') %>% map(2) %>% unlist
+
+
+cols_to_keep <- c("Gene symbol", "Gene ID")
+filt_esets[1:2] <- filt_esets[1:2] %>% 
+  map(function(x){
+    f <- fData(x)
+    f <- f[,cols_to_keep]
+    names(f) <- c("external_gene_name", "entrezgene")
+    f[f == ""] <- NA
+    fData(x) <- f
+    return(x)
+  })
+
+f <- fData(filt_esets[[3]])
+f <- f[,c("ILMN_Gene", "Entrez_Gene_ID")]
+names(f) <- c("external_gene_name", "entrezgene")
+f$entrezgene <- as.character(f$entrezgene)
+fData(filt_esets[[3]]) <- f
+
+
+coef_list <- list(c("NASH-HEALTHY_OBESE"), 
+                  c("advanced-mild" ),
+                  c("NASH-SS"))
+
+
+micro_gene_res <- seq_along(filt_esets) %>% 
+  map(function(i){
+    x <- filt_esets[[i]]
+    group_cont <- coef_list[[i]]
+    
+    x <- x[rowMin(exprs(x)) > quantile(exprs(x), probs=.1),]
+    mod <- better_model_matrix(~0 + group, data=pData(x))
+   
+    
+    cont_mod <- makeContrasts(contrasts = group_cont, levels=data.frame(mod, check.names = FALSE))
+    fit <-   
+      lmFit(x, data.frame(mod)) %>%
+      contrasts.fit(., cont_mod) %>% 
+      eBayes
+    gene_res <- get_limma_results(fit, group_cont)
+
+  }) %>% bind_rows
+  
+
+cp_kegg <- 
+  '../../reference_files/msigdb_v7.0/c2_kegg_entrez_msigdb_v7.0.gmt' %>%
+  clusterProfiler::read.gmt(.)
+
+kegg_objct <- split(micro_gene_res, micro_gene_res$coefficient) %>% 
+    map(function(x){
+        x <- x %>%
+          group_by(entrezgene) %>%
+          arrange(desc(abs(t))) %>%
+          dplyr::slice(1) %>%
+          ungroup
+        
+        x <- x$t %>% 
+            setNames(., x$entrezgene) %>% 
+            sort(., decreasing = TRUE)
+        clusterProfiler::GSEA(x, TERM2GENE = cp_kegg, pvalueCutoff = 1, minGSSize=1) 
+    })
+
+pths <- kegg_objct %>% 
+  map(as.data.frame) %>% 
+  rbind_named_df_list(., "coefficient") 
+names(pths)[2] <- "name"
+
+
+```
+
+### Tabulating concordance
+```{r}
+
+tmp_fun <- function(x) {
+    length(unique(na.omit(x))) == 1
+}
+
+tmp_fun2 <- function(x) {
+    sign(sum(na.omit(x)))
+}
+
+micro_sub <- pths %>% 
+  filter(p.adjust < 0.05) %>%
+  mutate(pth_sign = sign(NES)) %>% 
+  select(coefficient, name, pth_sign) %>% 
+  distinct
+
+table(micro_sub$coefficient, micro_sub$pth_sign)
+
+conc_pths <- micro_sub %>% 
+  group_by(name) %>% 
+  summarise(is_concordant = tmp_fun(pth_sign), pth_sign = tmp_fun2(pth_sign)) %>% 
+  filter(is_concordant)
+
+sig_pth_res <- read_rds("clust_gsva_path_res.rds") %>% filter(adj.P.Val < .001)
+
+tmp_data <- sig_pth_res %>% mutate(in_microarrays = (name %in% conc_pths$name))
+micro_pths <- conc_pths[,-2]
+names(micro_pths) <- str_to_lower(names(micro_pths))
+tmp_data <- left_join(sig_pth_res, micro_pths) %>% 
+  mutate(conc_w_microarray=(sign(logFC) == pth_sign))
+
+
+sum_tbl <-  tmp_data %>% 
+  group_by(coefficient) %>% 
+  # select(-disease_category) %>% 
+  distinct() %>% 
+  summarise(n_pths = n(), 
+            n_missing = sum(is.na(conc_w_microarray)),
+            n_conc = sum(na.omit(conc_w_microarray)), 
+            n_disc = sum(!na.omit(conc_w_microarray))) %>% 
+    
+  mutate(total=n_conc + n_disc) %>% 
+  mutate(cnc_prct=n_conc/total, dsc_prct=n_disc/total) 
+
+```
+
+
+### Venn Diagrams
+03/24/22
+```{r}
+
+library(eulerr)
+clust_tmp <- split(sig_pth_res, sig_pth_res$coefficient) %>% map(2) %>% map(unique)
+
+coef_tbl <- tibble(sig_idx=1:3, 
+                   cluster_comparison=c("PLI vs PN&S", "PF vs PN&S", "PF vs PLI"),
+                   micro_comp=rep("Microarrays", 3))
+micro_tmp <- unique(micro_pths$name)
+
+out_list <- 1:3 %>% 
+  map(function(i){
+    tmp_list <- list(clust_tmp[[i]], micro_tmp)
+    tmp_nms <- coef_tbl[i,2:3] %>% unlist %>% as.character
+    # Euler doesn't work with names that have &
+    # so going to that by hand 
+    names(tmp_list) <- c("clust", "micro")
+    
+    # tmp_list <- rev(tmp_list)
+    return(tmp_list)
+  })
+
+plot_list <- out_list %>% 
+  map(function(x){
+    euler(x) %>% 
+      plot(., quantities = list(cex = 1.125), labels = FALSE, adjust_labels=TRUE)
+      # plot(., quantities = list(cex = 1.125), labels = list(cex = 1.25), adjust_labels=TRUE)
+  })
+
+for(i in 1:3){
+  # fn <- paste0("msig_kegg_clust_v_microarray_gsea_", i, "_03-24-22.png")
+  png(fn, width = 2.5, height = 2.5, units = "in", res=500)
+  print(plot_list[[i]])
+  dev.off()
+}
+
+```
+
+
+
 ## Creating gene signatures 
-### Loading and prepping the requisite data
+### Cluster based gene signatures
 
 ```{r}
 cat_pths <- 
-  read_delim("data_raw/NAFLD_progression2path_03-09-2021.txt", 
+  read_delim("NAFLD_progression2path_03-09-2021.txt", 
              "\t",
              col_names = FALSE) %>% 
   set_names(., c("nafld_category", "id"))
 
+
+
 kegg_db <- 
-  read_rds("data_raw/c2_kegg_entrez_msigdb_v7.0_database.rds") %>% 
+  read_rds("c2_kegg_entrez_msigdb_v7.0_database.rds") %>% 
   separate_rows(entrezgene, sep = '\\|') %>% 
   select(name, id, entrezgene)
 
 sig_pth_res <- 
-  read_rds("data_raw/lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
+  read_rds("clust_gsva_path_res.rds") %>% 
   filter(adj.P.Val < .001)
 
 cols_to_keep <- c("coefficient","name","id", "logFC", "adj.P.Val" )
@@ -457,8 +748,7 @@ sig_pth_res <- sig_pth_res %>% filter(id %in% pths_to_keep)
 sig_pth_res <- inner_join(sig_pth_res, cat_pths)
 sig_pth_res <- inner_join(sig_pth_res, kegg_db)
 
-gene_res <- read_rds('data_raw/gene_res_from_clusters.rds') %>% 
-  # filter(adj.P.Val < .05)
+gene_res <- read_rds('clust_gene_res.rds') %>% 
   filter(adj.P.Val < .001)
 gene_res$entrezgene <- as.character(gene_res$entrezgene)
 
@@ -468,12 +758,6 @@ names(gene_res)[4:5] <- paste0("gene_", names(gene_res)[4:5])
 
 gene_pth_filt <- inner_join(gene_res, sig_pth_res)
 
-
-```
-
-
-### Creating the gene sigantures 
-```{r}
 
 upreg_genes <- gene_pth_filt %>% 
   filter(gene_logFC > 0) %>% 
@@ -488,16 +772,88 @@ downreg_genes <- gene_pth_filt %>%
   summarise(down_genes_entrez=paste(unique(entrezgene), collapse = ";"),
             n_downreg=length(unique(entrezgene)))
 
-unweighted_gene_sig <- 
+gene_sig <- 
   left_join(upreg_genes, downreg_genes) %>% 
   arrange(coefficient, nafld_category) %>% 
   ungroup
-unweighted_gene_sig$sig_idx <- 1:12
-unweighted_gene_sig <- unweighted_gene_sig %>%  relocate(sig_idx)
 
-# save(unweighted_gene_sig, file = "gene_signatures_03-18-21.RData")
+# saveRDS(gene_sig, file = "cluster_gene_signatures.rds")
 
 ```
+
+### Clinical label signatures
+
+```{r}
+
+cat_pths <- 
+  read_delim("NAFLD_progression2path_03-09-2021.txt", 
+             "\t",
+             col_names = FALSE) %>% 
+  set_names(., c("nafld_category", "id"))
+
+kegg_db <- 
+  read_rds("c2_kegg_entrez_msigdb_v7.0_database.rds") %>% 
+  separate_rows(entrezgene, sep = '\\|') %>% 
+  select(name, id, entrezgene)
+
+
+sig_pth_res <-
+  read_rds("clin_gsva_path_res.rds") %>% 
+  filter(adj.P.Val < .001)
+
+cols_to_keep <- c("coefficient","description","id", "logFC", "adj.P.Val" )
+sig_pth_res <- sig_pth_res[,cols_to_keep]
+
+
+names(sig_pth_res)[4:5] <- paste0("pathway_", names(sig_pth_res)[4:5])
+
+pths_to_keep <- cat_pths %>% filter(nafld_category %in% 1:4) %>% pull(id)
+sig_pth_res <- sig_pth_res %>% filter(id %in% pths_to_keep)
+sig_pth_res <- inner_join(sig_pth_res, cat_pths)
+sig_pth_res <- inner_join(sig_pth_res, kegg_db)
+
+gene_res <- read_rds('clin_gene_res.rds') 
+gene_res$entrezgene <- as.character(gene_res$entrezgene)
+
+sig_gene_res <- gene_res %>% 
+  filter(adj.P.Val < .001)
+
+
+cols_to_keep <- c("coefficient","external_gene_name", "entrezgene", "logFC", "adj.P.Val")
+sig_gene_res <- sig_gene_res[,cols_to_keep]
+names(sig_gene_res)[4:5] <- paste0("gene_", names(sig_gene_res)[4:5])
+
+gene_pth_filt <- inner_join(sig_gene_res, sig_pth_res)
+
+upreg_genes <- gene_pth_filt %>% 
+  filter(gene_logFC > 0) %>% 
+  group_by(coefficient, nafld_category) %>% 
+  summarise(up_genes_entrez=paste(unique(entrezgene), collapse = ";"),
+            n_upreg=length(unique(entrezgene)))
+  
+
+downreg_genes <- gene_pth_filt %>% 
+  filter(gene_logFC < 0) %>% 
+  group_by(coefficient, nafld_category) %>% 
+  summarise(down_genes_entrez=paste(unique(entrezgene), collapse = ";"),
+            n_downreg=length(unique(entrezgene)))
+
+gene_sig <- 
+  left_join(upreg_genes, downreg_genes) %>% 
+  arrange(coefficient, nafld_category) %>% 
+  ungroup
+gene_sig$coefficient <- factor(gene_sig$coefficient, levels = levels(sig_pth_res$coefficient))
+gene_sig <- gene_sig %>% arrange(coefficient, nafld_category)
+
+gene_sig$sig_idx <- 1:12
+gene_sig <- gene_sig %>%  relocate(sig_idx)
+
+# saveRDS(gene_sig, file = "clin_gene_signatures.rds")
+
+
+```
+
+
 
 ## Creating database DrugBank LINCS 
 ```{r}
@@ -513,15 +869,15 @@ cols_to_keep <-
     "pubchem_cid")
 
 # This file was created by joining the metadata files listed here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE92742
-#TODO figure out if this can be included or not 
-tmp_map <- read_rds('data_raw/GSE92742_inst_metadata.rds') %>% 
+
+tmp_map <- read_rds('GSE92742_inst_metadata.rds') %>% 
   filter(pert_type == "trt_cp") %>% 
   distinct
 tmp_map <- tmp_map[,cols_to_keep]
 
 # This is example of the data. The full DrugBank database  can be downloaded from here:
 # https://go.drugbank.com/releases/5-1-4/release_notes
-drugbank_data <- read_rds("data_raw/example_drugbank_v5.1.4_data.rds")
+drugbank_data <- read_rds("example_drugbank_v5.1.4_data.rds") %>% 
   separate_rows(., Synonyms, sep = '\\|')
 names(drugbank_data) <- str_to_lower(names(drugbank_data))
 
@@ -553,7 +909,7 @@ db_cmap_matches <- db_cmap_matches %>%
   select(pert_id, pert_iname, drugbank_id) %>% 
   left_join(., drugbank_data[,c("drugbank_id", "name")]) %>% 
   distinct
-man_annots <- read_rds("data_raw/manual_lincs_drugbank_drug_annots.rds") # these were matches done manually 
+man_annots <- read_rds("manual_lincs_drugbank_drug_annots.rds") # these were matches done manually 
 db_cmap_matches <- db_cmap_matches %>% filter(!pert_id %in% man_annots$pert_id)
 db_cmap_matches <- rbind(db_cmap_matches, man_annots)
 
@@ -566,8 +922,158 @@ db_cmap_matches <- db_cmap_matches %>% filter(!drugbank_id %in% dbids_to_remove)
 ```
 
 ## Performing the CMap analysis 
+The `gctx` files can be downloaded following the directions [clue.io](LINCS). They are very large and resource intensive. For this portion of the notebook, I used a machine with anywhere from 30-40 cores and 200-300 gb of memory. It still took many hours to run.   
+
+### LINCS database metadata
+The 2020 metadata (which was downloaded from here [clue.io]) was matched to DrugBank by common name only. 
+```{r}
+
+
+# See clue.io to obtain the 2020 metadata 
+drb_sigs <- 
+  read_rds("cmap2020_drubank_overlap_sig_info_01-24-22.rds") %>% 
+  select(1:4)
+
+pert_info <- drb_sigs[,2:4] %>% distinct
+
+pert_info2 <- read_rds("GSE92742_perts_in_DrugBank_03-30-21.rds") %>% 
+  select(-name) %>% 
+  distinct
+
+pert_info <- rbind(pert_info, pert_info2) %>% distinct
+rm(pert_info2)
+
+trt_cp <-
+  read_rds('GSE92742_inst_metadata.rds') %>% 
+  filter(pert_type == "trt_cp") %>% 
+  select(sig_id, cell_id, pert_id) %>% 
+  distinct %>% 
+  inner_join(., pert_info)
+
+names(trt_cp)[2] <- "cell_iname"
+
+
+```
+
+
+### LINCS 2017 Database 
+#### Cluster signatures 
 
 ```{r}
+library(cmapR)
+
+# See clue.io to obtain file 
+gctx_file <- '/zfs1/dtaylor/cmap_data/clue_test_data/sig_score_trt_cp_n204975x10174.gctx'
+
+cids <- read_gctx_meta(gctx_file,dim = "col") %>% pull
+
+gids <- read_gctx_meta(gctx_file,dim = "row") %>% pull
+
+cid_chunks <- chunker(cids, 5)
+
+clust_gene_sig <- read_rds("cluster_gene_signatures.rds")
+
+qunt_thresh <- 0
+p_thresh <- 1
+
+gene_sets <- clust_gene_sig %>% 
+  select(sig_idx, up_genes_entrez, down_genes_entrez)
+n_perm <-  5e+05
+
+
+ptm <- proc.time()
+clust_res_sub <-
+  map(cid_chunks, function(y){
+    sig_list <- 
+      gctx_to_sigList(gctx_file, y, decreasing_order = TRUE) # Sorts in descending order (big to smol)
+    out_res <- multi_broad_wrapper(gene_sets, sig_list, 10)
+    tot_time <- proc.time() - ptm
+    print(tot_time)
+    ptm <- proc.time()
+    return(out_res)
+  }) %>% 
+  bind_rows
+
+
+ptm <- proc.time()
+gsva_random_res_sub <- 
+  map(1:nrow(gene_sets), function(i){
+    x <- gene_sets[i,]
+    print(i)
+    tot_time <- proc.time() - ptm
+    print(tot_time)
+    ptm <- proc.time()
+    up_genes <- str_split(x[,2], pattern = ';') %>% unlist
+    up_genes <- up_genes[up_genes %in% gids]
+    down_genes <- str_split(x[,3], pattern = ';') %>% unlist
+    down_genes <- down_genes[down_genes %in% gids]
+    random_cs <- get_random_cmap_scores(up_genes, down_genes, gctx_file, cids, n_perm= n_perm, num_chunks = 10, n_cores = 14)
+
+    random_cs$r_up_genes <- NULL
+    random_cs$r_down_genes <- NULL
+    return(random_cs)
+  })
+
+# These cols were included for debugging purposes but are not neccessary
+clust_res_sub$down_genes <- NULL
+clust_res_sub$up_genes <- NULL
+
+names(clust_res_sub)[1] <- "sig_idx"
+
+gc()
+
+clust_res_sub <- split(clust_res_sub, clust_res_sub$sig_idx)
+plan(multisession, workers=13)
+clust_res_sub <- add_p_vals_to_cmap_para(clust_res_sub, gsva_random_res_sub)
+
+# saveRDS(clust_res_sub, "cluster_sigs_cmap_lincs17_res.rds")
+
+
+lincs_top20_table <- lincs2017_score_top20(pert_score)
+ol <- list(best_score_mat(tmp_cmap_sub), pert_score) %>% setNames(., c("best_score","prct_67th_score"))
+# saveRDS(ol, "cluster_sigs_cmap_lincs17_pert_sums.rds")
+
+
+```
+
+##### Summary file
+```{r}
+
+
+clust_res_l2017 <- read_rds("cluster_sigs_cmap_lincs17_res.rds")
+
+trt_cp <-
+  read_rds('GSE92742_inst_metadata.rds') %>% 
+  filter(pert_type == "trt_cp") %>% 
+  select(sig_id, cell_id, pert_id, pert_iname) %>% 
+  distinct
+
+clust_res_l2017 <- inner_join(trt_cp, clust_res_l2017)
+names(clust_res_l2017)[2] <- "cell_iname"
+
+drg_db <- read_rds("GSE92742_perts_in_DrugBank_03-30-21.rds")
+clust_res_l2017 <- inner_join(drg_db, clust_res_l2017) %>% calculate_ncs()
+
+best_score_table <- best_score_top20(best_score_mat(clust_res_l2017))
+
+pert_score <- calculate_pert_score(calculate_pert_cell_score(clust_res_l2017))
+pert_score <- inner_join(pert_score, drg_db)
+ol <- list(best_score_mat(clust_res_l2017), pert_score) %>% setNames(., c("best_score","prct_67th_score"))
+# saveRDS(ol, "cluster_sigs_cmap_lincs17_pert_sums.rds")
+
+
+```
+
+
+
+#### Clinical signatures
+```{r}
+
+library(cmapR)
+library(QSPpaper)
+library(tidyverse)
+
+nperm <- 1+07
 
 # Figuring out which perts to analyze
 meta_cols_to_keep <- 
@@ -576,30 +1082,19 @@ meta_cols_to_keep <-
     "pert_iname")
 
 trt_cp <-
-  read_rds('data_raw/GSE92742_inst_metadata.rds') %>% 
+  read_rds('GSE92742_inst_metadata.rds') %>% 
   filter(pert_type == "trt_cp") %>% 
   distinct
 
 trt_cp <- trt_cp[,meta_cols_to_keep]
 
-#TODO think refactoring such that this works with updated file 
-# right now it doesn't for the end result, it's just annoying have
-# what amounts to duplicate files. 
-drgbnk_db <- 
-  readRDS('data_raw/GSE92742_perts_in_DrugBank_03-30-21.rds') %>% 
-  dplyr::select(pert_id, pert_iname, drugbank_id) %>% 
-  na.omit %>% 
-  distinct
 
-trt_cp <- inner_join(trt_cp, drgbnk_db)
-# saveRDS(trt_cp, "sig_id_drugbank_cmap_overlap.rds")
+drgbnk_db <- read_rds("GSE92742_perts_in_DrugBank_03-30-21.rds")
+# BRD-A60245366 is the AS-601245 compound
+perts_to_keep <- c("BRD-A60245366", drgbnk_db$pert_id)
+trt_cp <- trt_cp %>% filter(pert_id %in% perts_to_keep) %>% left_join(., drgbnk_db)
 
-load("data_raw/gene_signatures_03-18-21.RData")
 
-# This file was created by downloading the CMap contest data csv. It can be found at the clue.io data library under contests. 
-# The contest is entitled "CMap QUery Speedup Challenge" and the file is "sig_score_n476251x10174.csv.gz". It was then converted
-# into a gctx file to make reading it in chunks easier. 
-#TODO Add code for creating this file
 gctx_file <- '/zfs1/dtaylor/cmap_data/clue_test_data/sig_score_trt_cp_n204975x10174.gctx'
 cids <- read_gctx_meta(gctx_file,dim = "col") %>% pull
 gids <- read_gctx_meta(gctx_file,dim = "row") %>% pull
@@ -610,119 +1105,340 @@ cids <- cids[cids %in% trt_cp$sig_id]
 cid_chunks <- chunker(cids, 6)
 
 
-
-gene_sets <- unweighted_gene_sig %>% 
+gsva_gene_sig <- readRDS("clin_gene_signatures.rds")
+gene_sets <- gsva_gene_sig %>% 
   select(sig_idx, up_genes_entrez, down_genes_entrez)
 
+# For debugging purposes
+# cid_chunks <- cid_chunks[1]
+# cid_chunks[[1]] <- cid_chunks[[1]][1:50]
+# gene_sets <- gene_sets[1,]
 
-unweighted_res_sub <-
+gsva_res_sub <-
   map(cid_chunks, function(y){
     sig_list <- 
       gctx_to_sigList(gctx_file, y, decreasing_order = FALSE)
-    out_res <- multi_broad_wrapper(gene_sets, sig_list, 7)
+    out_res <- multi_broad_wrapper(gene_sets, sig_list, 14)
   }) %>% 
   bind_rows
 
-unweighted_random_res_sub <- 
+
+
+ptm <- proc.time()
+gsva_random_res_sub <- 
   map(1:nrow(gene_sets), function(i){
     x <- gene_sets[i,]
+    print(i)
+    tot_time <- proc.time() - ptm
+    print(tot_time)
+    ptm <- proc.time()
     up_genes <- str_split(x[,2], pattern = ';') %>% unlist
     up_genes <- up_genes[up_genes %in% gids]
     down_genes <- str_split(x[,3], pattern = ';') %>% unlist
     down_genes <- down_genes[down_genes %in% gids]
-    random_cs <- 
-      get_random_cmap_scores(up_genes, down_genes, gctx_file, cids, n_perm=5e+05, num_chunks = 6, n_cores = 12)
+    # random_cs <- get_random_cmap_scores(up_genes, down_genes, gctx_file, cids, n_perm=1e+07, num_chunks = 6, n_cores = 25)
+    random_cs <- get_random_cmap_scores(up_genes, down_genes, gctx_file, cids, n_perm= nperm, num_chunks = 6, n_cores = 29)
+
+    
+    random_cs$r_up_genes <- NULL
+    random_cs$r_down_genes <- NULL
+    return(random_cs)
   })
 
 
-# save(unweighted_res_sub, unweighted_random_res_sub, file = "unweighted_cmap_res_db_sub_03-22-21.RData")
 
+gsva_res_sub$down_genes <- NULL
+gsva_res_sub$up_genes <- NULL
+names(gsva_res_sub)[1] <- "sig_idx"
 
-```
-
-### Calculating the p-values 
-```{r}
-
-# File not currently included in the data_raw dir because it's 10g. 
-#TODO make shrink and include this file 
-load("data_raw/unweighted_cmap_res_db_sub_03-22-21.RData")
-# Removing extra columns to save on mem
-unweighted_random_res_sub <- unweighted_random_res_sub %>% 
-  map(function(x){
-    x$r_up_genes <- NULL
-    x$r_down_genes <- NULL
-    return(x)
-  })
-
-unweighted_res_sub$up_genes <- NULL
-unweighted_res_sub$down_genes <- NULL
 gc()
 
-plan(multisession, workers=15)
-unweighted_res_sub <- split(unweighted_res_sub, unweighted_res_sub$sig_idx)
-unweighted_res_w_p_value <- add_p_vals_to_cmap_para(unweighted_res_sub, unweighted_random_res_sub)
-# saveRDS(unweighted_res_w_p_value, "unweighted_res_sub_w_p-values_03-22-21.rds")
+gsva_res_sub <- split(gsva_res_sub, gsva_res_sub$sig_idx)
+plan(multisession, workers=13)
+gsva_res_sub <- add_p_vals_to_cmap_para(gsva_res_sub, gsva_random_res_sub)
+
+# saveRDS(gsva_res_sub, "clinical_sigs_cmap_lincs17_res.rds")
 
 ```
 
-### Processing raw CMap results
+##### Sumarry file
 ```{r}
 
-meta_cols_to_keep <- 
-  c("sig_id",
-    "pert_id",
-    "pert_iname")
-
 trt_cp <-
-  read_rds('data_raw/GSE92742_inst_metadata.rds') %>% 
+  read_rds('GSE92742_inst_metadata.rds') %>% 
   filter(pert_type == "trt_cp") %>% 
+  select(sig_id, cell_id, pert_id, pert_iname) %>% 
   distinct
 
-trt_cp <- trt_cp[,meta_cols_to_keep]
-
-load("data_raw/gene_signatures_03-18-21.RData")
-
-
-cmap_res <- read_rds("data_raw/unweighted_res_sub_w_p-values_03-22-21.rds")
-# Fixing some issues with p-values, since I didn't divide by 
-# length. 
-#TODO fix this so the code isn't neccessary 
-cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(p_value=p_value/max(p_value))
-cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(fdr_p_value=p.adjust(p_value, method = 'fdr'))
+gsva_cmap17 <- read_rds("clinical_sigs_cmap_lincs17_res.rds")
+  
+gsva_cmap17 <- left_join(gsva_cmap17, trt_cp)
 
 
-sig_idx_map <- read_csv("data_raw/Data_file_S3_Gene_signatures.csv") %>% 
-  select(1:3)
-names(sig_idx_map)[1] <- "sig_idx"
+gsva_cmap17 <- inner_join(trt_cp, gsva_cmap17)
+names(gsva_cmap17)[2] <- "cell_iname"
 
-sig_cmap <- inner_join(trt_cp, cmap_res) %>% 
-  group_by(sig_idx, pert_iname) %>% 
-  arrange(cmap_score, .by_group=TRUE) %>% 
-  slice(1) %>% 
-  ungroup
-sig_cmap <- left_join(sig_cmap, sig_idx_map)
+drg_db <- read_rds("GSE92742_perts_in_DrugBank_03-30-21.rds")
+gsva_cmap17 <- inner_join(drg_db, gsva_cmap17) %>% calculate_ncs()
 
-drg_db <- read_rds("data_raw/GSE92742_perts_in_DrugBank_03-30-21.rds") 
-sig_cmap <- left_join(sig_cmap, drg_db)
+best_score_table <- best_score_top20(best_score_mat(gsva_cmap17))
 
-sig_cmap <- sig_cmap %>% 
-  group_by(sig_idx) %>% 
-  arrange(cmap_score, .by_group=TRUE) %>% 
-  mutate(drug_idx=row_number()) %>% 
-  ungroup
 
-fdr05_tbl <- sig_cmap %>% 
-  filter(fdr_p_value < .05) %>% 
-  # select(-drugbank_id, -name) %>% 
-  distinct %>% 
-  group_by(sig_idx) %>% 
-  arrange(cmap_score, .by_group=TRUE) %>% 
-  slice(1:20) %>% 
-  ungroup
-# saveRDS(fdr05_tbl, "fdr05_tbl_top20_drugs.rds")
+pert_score <- calculate_pert_score(calculate_pert_cell_score(gsva_cmap17))
+pert_score <- inner_join(pert_score, drg_db)
+
+lincs_top20_table <- lincs2017_score_top20(pert_score)
+ol <- list(best_score_mat(gsva_cmap17), pert_score) %>% setNames(., c("best_score","prct_67th_score"))
+# saveRDS(ol, "clinical_sigs_cmap_lincs17_pert_sums.rds.rds")
+
 
 
 ```
+
+
+
+### LINCS 2020 Database
+The same CMap analysis using the cluster gene signatures and clincal label based signatures are performed here using the 2020 LINCS database. These files can be obtained following the instructions listed on [LINCS site](clue.io). This was about an order of magnitude larger than the 2017 database, so it's even more resource intensive. 
+
+#### Cluster signatures 
+
+
+```{r}
+
+gctx_file <- "/zfs1/dtaylor/cmap_data/cmap_lincs_2020/level5_beta_trt_cp_n720216x10174.gctx"
+
+
+sig_info <- readRDS("cmap2020_drubank_overlap_sig_info_01-24-22.rds")
+cids <- read_gctx_meta(gctx_file,dim = "col") %>% pull
+cids <- cids[cids %in% sig_info$sig_id]
+gids <- read_gctx_meta(gctx_file,dim = "row") %>% pull
+
+cid_chunks <- chunker(cids, 5)
+
+clust_gene_sig <- read_rds("cluster_gene_signatures.rds")
+
+qunt_thresh <- 0
+p_thresh <- 1
+
+gene_sets <- clust_gene_sig %>% 
+  select(sig_idx, up_genes_entrez, down_genes_entrez)
+n_perm <-  5e+05
+# n_perm <-  5
+
+ptm <- proc.time()
+clust_res_sub <-
+  map(cid_chunks, function(y){
+    sig_list <- 
+      gctx_to_sigList(gctx_file, y, decreasing_order = TRUE) # Sorts in descending order (big to smol)
+    out_res <- multi_broad_wrapper(gene_sets, sig_list, 10)
+    tot_time <- proc.time() - ptm
+    print(tot_time)
+    ptm <- proc.time()
+    return(out_res)
+  }) %>% 
+  bind_rows
+
+
+ptm <- proc.time()
+gsva_random_res_sub <- 
+  map(1:nrow(gene_sets), function(i){
+    x <- gene_sets[i,]
+    print(i)
+    tot_time <- proc.time() - ptm
+    print(tot_time)
+    ptm <- proc.time()
+    up_genes <- str_split(x[,2], pattern = ';') %>% unlist
+    up_genes <- up_genes[up_genes %in% gids]
+    down_genes <- str_split(x[,3], pattern = ';') %>% unlist
+    down_genes <- down_genes[down_genes %in% gids]
+    random_cs <- get_random_cmap_scores(up_genes, down_genes, gctx_file, cids, n_perm= n_perm, num_chunks = 10, n_cores = 14)
+
+    random_cs$r_up_genes <- NULL
+    random_cs$r_down_genes <- NULL
+    return(random_cs)
+  })
+
+
+
+
+
+clust_res_sub <- split(clust_res_sub, clust_res_sub$sig_idx)
+clust_gsva_cmap_res_w_p_value <- add_p_vals_to_cmap_para(clust_res_sub, gsva_random_res_sub)
+
+
+# saveRDS(clust_gsva_cmap_res_w_p_value, "cluster_sigs_cmap_lincs20_res.rds")
+
+```
+
+##### Summary file
+The `siginfo_beta.txt` file can be obtained from the [LINCS site](clue.io). 
+
+```{r}
+library(flextable)
+
+cs_mat <- read_rds("cluster_sigs_cmap_lincs20_res.rds")
+cs_mat$up_genes <- NULL
+cs_mat$down_genes <- NULL
+
+sig_info <- read_delim("siginfo_beta.txt") %>% select(pert_id, cell_iname, sig_id) %>% distinct
+cs_mat <- inner_join(cs_mat, sig_info)
+
+drb_sigs <- 
+  read_rds("cmap2020_drubank_overlap_sig_info_01-24-22.rds") %>% 
+  select(1:4)
+
+pert_info <- drb_sigs[,2:4] %>% distinct
+
+trt_cp <-
+  read_rds('GSE92742_inst_metadata.rds') %>% 
+  filter(pert_type == "trt_cp") %>% 
+  select(sig_id, cell_id, pert_id) %>% 
+  distinct
+
+clust_res_l2017 <- read_rds("cluster_sigs_cmap_lincs17_res.rds")
+
+clust_res_l2017 <- inner_join(trt_cp, clust_res_l2017)
+names(clust_res_l2017)[2] <- "cell_iname"
+
+
+tmp1 <- clust_res_l2017 %>% filter(!sig_id %in% cs_mat$sig_id)
+tmp_cmap <- rbind(cs_mat, tmp1) 
+tmp_cmap <- calculate_ncs(tmp_cmap)
+tmp_cmap_sub <- inner_join(tmp_cmap, pert_info)
+
+best_score_table <- best_score_top20(best_score_mat(tmp_cmap_sub))
+
+pert_score <- calculate_pert_score(calculate_pert_cell_score(tmp_cmap_sub))
+pert_score <- inner_join(pert_score, pert_info)
+
+ol <- list(best_score_mat(tmp_cmap_sub), pert_score) %>% setNames(., c("best_score","prct_67th_score"))
+# saveRDS(ol, "cluster_sigs_cmap_lincs20_pert_sums.rds")
+
+
+```
+
+
+
+#### Clinical signatures
+The
+
+```{r}
+gctx_file <- "/zfs1/dtaylor/cmap_data/cmap_lincs_2020/level5_beta_trt_cp_n720216x10174.gctx"
+
+
+sig_info <- readRDS("cmap2020_drubank_overlap_sig_info_01-24-22.rds")
+cids <- read_gctx_meta(gctx_file,dim = "col") %>% pull
+cids <- cids[cids %in% sig_info$sig_id]
+gids <- read_gctx_meta(gctx_file,dim = "row") %>% pull
+
+cid_chunks <- chunker(cids, 5)
+
+gsva_gene_sig <- readRDS("clinical_sigs_cmap_lincs20_res.rds.rds")
+# gsva_gene_sig <- gsva_gene_sig %>% filter(sig_idx == 1)
+qunt_thresh <- unique(gsva_gene_sig$abs_quantile_thresh)
+p_thresh <- unique(gsva_gene_sig$fdr_p_value_thresh)
+
+gene_sets <- gsva_gene_sig %>% 
+  select(sig_idx, up_genes_entrez, down_genes_entrez)
+n_perm <-  5e+05
+# n_perm <-  5
+
+ptm <- proc.time()
+gsva_res_sub <-
+  map(cid_chunks, function(y){
+    sig_list <- 
+      gctx_to_sigList(gctx_file, y, decreasing_order = TRUE) # Sorts in descending order (big to smol)
+    out_res <- multi_broad_wrapper(gene_sets, sig_list, 10)
+    tot_time <- proc.time() - ptm
+    print(tot_time)
+    ptm <- proc.time()
+    return(out_res)
+  }) %>% 
+  bind_rows
+
+
+
+ptm <- proc.time()
+gsva_random_res_sub <- 
+  map(1:nrow(gene_sets), function(i){
+    x <- gene_sets[i,]
+    print(i)
+    tot_time <- proc.time() - ptm
+    print(tot_time)
+    ptm <- proc.time()
+    up_genes <- str_split(x[,2], pattern = ';') %>% unlist
+    up_genes <- up_genes[up_genes %in% gids]
+    down_genes <- str_split(x[,3], pattern = ';') %>% unlist
+    down_genes <- down_genes[down_genes %in% gids]
+    random_cs <- get_random_cmap_scores(up_genes, down_genes, gctx_file, cids, n_perm= n_perm, num_chunks = 10, n_cores = 14)
+
+    random_cs$r_up_genes <- NULL
+    random_cs$r_down_genes <- NULL
+    return(random_cs)
+  })
+
+gsva_res_sub <- split(gsva_res_sub, gsva_res_sub$sig_idx)
+plan(multisession, workers=13)
+gsva_res_sub <- add_p_vals_to_cmap_para(gsva_res_sub, gsva_random_res_sub)
+
+
+# saveRDS(gsva_res_sub, "clinical_sigs_cmap_lincs20_res.rds")
+
+
+
+
+```
+
+
+##### Summary file
+```{r}
+library(officer)
+library(flextable)
+
+cs_mat <- read_rds("clinical_sigs_cmap_lincs20_res.rds")
+cs_mat$up_genes <- NULL
+cs_mat$down_genes <- NULL
+
+sig_info <- read_delim("siginfo_beta.txt") %>% select(pert_id, cell_iname, sig_id) %>% distinct
+cs_mat <- inner_join(cs_mat, sig_info)
+
+
+drb_sigs <- 
+  read_rds("cmap2020_drubank_overlap_sig_info_01-24-22.rds") %>% 
+  select(1:4)
+
+
+pert_info <- drb_sigs[,2:4] %>% distinct
+
+trt_cp <-
+  read_rds('GSE92742_inst_metadata.rds') %>% 
+  filter(pert_type == "trt_cp") %>% 
+  select(sig_id, cell_id, pert_id) %>% 
+  distinct
+
+l2017_res <- read_rds("clinical_sigs_cmap_lincs17_res.rds")
+l2017_res$cmap_score <- l2017_res$cmap_score*-1
+l2017_res <- inner_join(trt_cp, l2017_res)
+names(l2017_res)[2] <- "cell_iname"
+
+
+tmp1 <- l2017_res %>% filter(!sig_id %in% cs_mat$sig_id)
+tmp_cmap <- rbind(cs_mat, tmp1) 
+tmp_cmap <- calculate_ncs(tmp_cmap)
+tmp_cmap_sub <- inner_join(tmp_cmap, pert_info)
+
+best_score_table <- best_score_top20(best_score_mat(tmp_cmap_sub)) 
+
+pert_score <- calculate_pert_score(calculate_pert_cell_score(tmp_cmap_sub))
+pert_score <- inner_join(pert_score, pert_info)
+
+lincs_top20_table <- lincs2017_score_top20(pert_score)
+ol <- list(best_score_mat(tmp_cmap_sub), pert_score) %>% setNames(., c("best_score","prct_67th_score"))
+# saveRDS(ol, "clinical_sigs_cmap_lincs20_pert_sums.rds")
+
+```
+
+
 
 ## Network proximity 
 The python code for this portion of the analysis can be downloaded from this [repo](https://github.com/emreg00/toolbox). I ran everything in a local directory with the package. The BioSnap PPI network can be downloaded from [here](https://snap.stanford.edu/biodata/datasets/10013/10013-PPT-Ohmnet.html). 
@@ -730,9 +1446,12 @@ The python code for this portion of the analysis can be downloaded from this [re
 ### Getting DEGs which are in the NAFLD subnetwork
 ```{r}
 
+# This file is just an edgelist created by subsetting just the liver. I'm not including it
+# because I'm not sure about the license. 
 
-biosnap <- read_rds("data-raw/PPT-Ohmnet_edgelist_liver.rds")
-# write_csv(biosnap, "biosnap_liver_ppi_network.txt")
+# biosnap <- read_rds("PPT-Ohmnet_edgelist_liver.rds")
+biosnap <- read_rds("example_PPT-Ohmnet_edgelist_liver.rds")
+
 bsp_genes <- do.call(c, biosnap[,1:2]) %>% unique
 
 nafld_associated_pths <- 
@@ -748,11 +1467,11 @@ nafld_associated_pths <-
     "Oxidative phosphorylation",
     "Apoptosis") 
 
-kegg_data <- read_rds("data-raw/kegg_pathway_entrezgene.rds") %>% 
+kegg_data <- read_rds("kegg_pathway_entrezgene.rds") %>% 
   setNames(., c("id", "entrezgene"))
-kegg_data <- left_join(kegg_data, read_rds("data-raw/kegg_pathway_hierarchy.rds"))
+kegg_data <- left_join(kegg_data, read_rds("kegg_pathway_hierarchy.rds"))
 
-gene_res <- read_rds("gene_res_from_clusters.rds") %>% 
+gene_res <- read_rds("clust_gene_res.rds") %>% 
   filter(adj.P.Val < .001)
 
 nap_genes <- kegg_data %>% 
@@ -773,10 +1492,19 @@ degs_to_keep <- degs_to_keep[degs_to_keep %in% bsp_genes]
 ```{r}
 
 
-drug_list <- read_rds("data_raw/manual_lincs_drugbank_drug_annots.rds")
+drug_list <- read_rds("cmap2020_pert_drugbank_overlap_01-18-22.rds")
+drug_list2 <-  read_rds("manual_lincs_drugbank_drug_annots.rds") %>% select(-name)
+names(drug_list2)[2] <- "drug_name"
+drug_list2 <- drug_list2 %>% relocate(drug_name)
+drug_list3 <- read_rds("GSE92742_perts_in_DrugBank_03-30-21.rds") %>% 
+  select(-name) %>% 
+  rename(drug_name=pert_iname) %>% 
+  relocate(drug_name)
+drug_list <- do.call(rbind, list(drug_list, drug_list2, drug_list3)) %>% distinct
+
 
 drugbank_data <- 
-  read_rds("data_raw/drugbank_db_metadata_v5.1.4.rds") %>% 
+  read_rds("drugbank_db_metadata_v5.1.4.rds") %>% 
   select(drugbank_id, targets) %>% 
   separate_rows(targets, sep ="\\|") 
   
@@ -788,27 +1516,68 @@ xx <- as.data.frame(org.Hs.eg.db::org.Hs.egALIAS2EG) %>%
 drugbank_data <- left_join(drugbank_data, xx) %>% na.omit
 drug_list <- left_join(drug_list, drugbank_data)
 
-as_tgts <-  paste(c("5599", "5602", "4293", "5601"), collapse = ';' )
-as_tgts <- tibble(drug_name= "AS-601245", targets=as_tgts)
+tmp_files <- list.files(".", "_pert_sums")
+idx <- 1
 
-drug_list$fixed_drug_names <- drug_list$pert_iname
-drug_list$fixed_drug_names[str_detect(drug_list$pert_iname, "BR")] <- drug_list$name[str_detect(drug_list$pert_iname, "BR")]
-drug_list <- drug_list %>% filter(drugbank_id !="DB08022")
+nms <- str_split(tmp_files, '_p') %>% map(1) %>% unlist %>% gsub('sig_', "", .)
 
-out_list <- split(drug_list, drug_list$fixed_drug_names) %>% 
-    map(function(x){
-        tmp_genes <- unique(x$entrezgene)
-        enframe(paste(tmp_genes, collapse = ';'),value = 'targets')
-    }) %>% rbind_named_df_list(., "drug_name")
+lincs_score_out <- map(seq_along(tmp_files), function(idx){
+  x <- read_rds(paste0('.', tmp_files[[idx]]))[[2]]
+  t20_tbl <- lincs2017_score_top20(x)
+  pert_map <- x %>% select(pert_iname, pert_id) %>% distinct
+  
+  t20_tbl <- left_join(t20_tbl, pert_map) %>% 
+    left_join(., drug_list) %>% 
+    na.omit
+  
+  t20_tbl <- t20_tbl %>% 
+    group_by(pert_iname) %>% 
+    summarise(targets=paste(unique(entrezgene), collapse = ';')) %>% 
+    setNames(., c("drug_name", "targets"))
+}) %>% 
+  setNames(., nms) %>% 
+  rbind_named_df_list(.) %>% 
+  distinct %>% 
+  mutate(score_method="prct_67th_score")
 
-out_list$name <- NULL
-out_list <- rbind(out_list, as_tgts)
 
-# write_csv(out_list, "targets_from_top_cmap_drugs_03-27-21.csv")
+  
+
+best_score_out <- map(seq_along(tmp_files), function(idx){
+  x <- read_rds(paste0('./', tmp_files[[idx]]))[[1]]
+  t20_tbl <- best_score_top20(x)
+  pert_map <- x %>% select(pert_iname, pert_id) %>% distinct
+  
+  t20_tbl <- left_join(t20_tbl, pert_map) %>% 
+    left_join(., drug_list) %>% 
+    na.omit
+  
+  t20_tbl <- t20_tbl %>% 
+    group_by(pert_iname) %>% 
+    summarise(targets=paste(unique(entrezgene), collapse = ';')) %>% 
+    setNames(., c("drug_name", "targets"))
+}) %>% 
+  setNames(., nms) %>% 
+  rbind_named_df_list(.) %>% 
+  distinct %>% 
+  mutate(score_method="best_score")
+
+long_t20_mat <- rbind(best_score_out,lincs_score_out )
+long_t20_mat$col_from_list <- gsub("lincs", "", long_t20_mat$col_from_list)
+nms <- limma::strsplit2(long_t20_mat$col_from_list, "_") %>%  
+  as.data.frame %>% 
+  setNames(., c("signature_set", "lincs_db"))
+long_t20_mat <- cbind(nms, long_t20_mat) %>% select(-col_from_list) %>% mutate(lincs_db=as.numeric(lincs_db))
+
+
+out_mat <- rbind(best_score_out,lincs_score_out ) %>% select(drug_name, targets) %>% distinct 
+# write_csv(out_mat, "targets_from_top_cmap_drugs.csv")
+
+
 ```
 
 ### Calculating network proximity 
-Again the python code can be found [here](https://github.com/emreg00/toolbox). I excuted in this in the top-level dir of this repo. 
+The python code can be found [here](https://github.com/emreg00/toolbox). I executed in this in the top-level dir of this repo. 
 
 ```{python}
 import random
@@ -816,13 +1585,13 @@ import toolbox
 from toolbox import wrappers
 
 # Loading the data 
-drug_targets = [i.strip().split(',') for i in open("targets_from_top_cmap_drugs_03-27-21.csv")] 
+drug_targets = [i.strip().split(',') for i in open("targets_from_top_cmap_drugs.csv")] 
 drug_targets = drug_targets[1:]
 network = wrappers.get_network("biosnap_liver_ppi_network.txt", only_lcc = True)
 degs = [i.strip() for i in open("updated_degs_in_network.txt")]
 
 # Running analysis and writing results 
-with open("network_proximity_results_03-27-21.csv", "w+") as f: 
+with open("network_proximity_results.csv", "w+") as f: 
     hd = "db_id,d,z,mean,sd\n"
     f.write(hd)
     for i in drug_targets:
@@ -841,9 +1610,316 @@ with open("network_proximity_results_03-27-21.csv", "w+") as f:
 ```
 
 
+## LAMPS analysis 
+### Pre-processing and DEG analysis {#lamps_degs}
+
+```{r}
+
+library(tximport)
+library(limma)
+library(edgeR)
+library(delutils)
+
+load('gene_annots.RData')
+load('tx2gene.RData')
+
+p <- readRDS("NAFLD_model/pdata.rds")
+
+files <- paste0('NAFLD_model/kallisto/', p$file_name) 
+names(files) <- p$sample_id
+txi <- tximport(files, 
+                type = 'kallisto', 
+                tx2gene = tx2gene, 
+                ignoreTxVersion = TRUE, 
+                countsFromAbundance = 'lengthScaledTPM')
+
+# saveRDS(txi, "NAFLD_model/nafld_model_txi.rds")
+txi <- read_rds("NAFLD_model/nafld_model_txi.rds")
+dge <- edgeR::DGEList(counts =  txi$counts, 
+                      samples = p[colnames(txi$counts),],
+                      genes = gene_annots[row.names(txi$counts),])
+# saveRDS(dge, "NAFLD_model/nafld_model_dge.rds")
+dge <- dge[edgeR::filterByExpr(dge, group = dge$samples$treatment),]
+dge <- dge[(rowSums(dge$counts > 1) >= .75*dim(dge)[2]),]
+dge <- dge[!is.na(dge$genes$entrezgene),]
+
+# dge <- calcNormFactors(dge)
+
+mod <- delutils::better_model_matrix(~0 + treatment + time_point, data=p)
+
+v <- voom(dge, mod, normalize.method = "quantile")
+
+# saveRDS(v, "NAFLD_model/lamps_nafld_qn_voom_07-08-21.rds")
+
+trt_conts <- c("EMS-NF", "LMS-NF", "LMS-EMS")
+cont_mod <- makeContrasts(contrasts = trt_conts, levels=mod)
+fit <- lmFit(v, mod) %>%
+  contrasts.fit(., cont_mod) %>%
+  eBayes(.)
 
 
-# Results 
+res <- get_limma_results(fit, coefs = trt_conts)
+res$coefficient <- factor(res$coefficient, levels = trt_conts)
+# saveRDS(res, "NAFLD_model/treatment_gene_res_07-21-21.rds")
+# write_csv(res, file = "Data_file_S8_LAMPS_DEGs.csv")
+
+```
+
+### Comparing patients to LAMPS
+#### Comparing the DEGs
+
+```{r}
+
+p_val_thresh <- .01
+
+
+cols_to_keep <- c("coefficient","gene_id", "entrezgene", "external_gene_name","logFC")
+
+hu_coefs <- c("Lob-(NORMAL+STEATOSIS)/2","Fibrosis-(NORMAL+STEATOSIS)/2", "Fibrosis-Lob" )
+hum_res <- read_rds("clin_gene_res.rds") 
+
+hu_tmp <- hum_res %>% 
+  filter(adj.P.Val < p_val_thresh)
+
+hu_tmp <- hu_tmp %>% 
+  select(cols_to_keep) %>% 
+  mutate(hum_sign=sign(logFC)) %>% 
+  select(-logFC) %>% 
+  distinct
+hu_tmp$coefficient <- factor(hu_tmp$coefficient, levels = hu_coefs)
+hu_tmp$num_coef <-  as.numeric(hu_tmp$coefficient)
+
+
+lamps_res <- read_rds("NAFLD_model/treatment_gene_res_07-21-21.rds")
+
+
+lamps_tmp <- lamps_res %>% 
+  filter(adj.P.Val < p_val_thresh)
+lamps_tmp <- lamps_tmp %>% select(cols_to_keep) %>% 
+  mutate(lamps_sign=sign(logFC)) %>% 
+  select(-logFC) %>% 
+  distinct
+lamps_tmp$entrezgene <- as.character(lamps_tmp$entrezgene)
+lamps_tmp$num_coef <- as.numeric(lamps_tmp$coefficient)
+
+gene_overlap <- 
+  inner_join(lamps_tmp[,-1], hu_tmp[,-1]) %>% 
+  relocate(num_coef) 
+gene_overlap$sgn_prd <- gene_overlap$lamps_sign * gene_overlap$hum_sign
+# saveRDS(gene_overlap, file = "NAFLD_model/lamps_human_overlap_degs_08-21-21.rds")
+  
+
+cncdnt_genes <- gene_overlap %>% filter(sgn_prd > 0)
+disc_genes <- gene_overlap %>% filter(sgn_prd < 0)
+
+```
+
+#### Comparing the KEGG MSig pathways 
+```{r}
+library(clusterProfiler)
+
+cp_kegg <- 
+  "msigdb_v7.0/c2_kegg_entrez_msigdb_v7.0.gmt" %>% 
+  clusterProfiler::read.gmt(.) 
+  
+pth_data <- 
+  read_rds("msigdb_v7.0_all_tibble.rds") %>% 
+  filter(SUB_CATEGORY_CODE == "CP:KEGG") %>% 
+  dplyr::select(STANDARD_NAME,EXACT_SOURCE, DESCRIPTION_BRIEF) %>% 
+  setNames(., c('name','ID', "Description")) 
+
+
+
+cols_to_keep <- c("coefficient","ID","Description","NES", "p.adjust")
+
+hu_kegg_objct <- split(hum_res, hum_res$coefficient) %>% 
+  map(function(x){
+    x <- x$t %>% 
+      setNames(., x$entrezgene) %>% 
+      sort(., decreasing = TRUE)
+    GSEA(x, TERM2GENE = cp_kegg, pvalueCutoff = 1, minGSSize=1) 
+  })
+
+# KEGG_TAURINE_AND_HYPOTAURINE_METABOLISM and KEGG_FOLATE_BIOSYNTHESIS are not included
+# because they do not make the default cut off of min size 10 genes. They have more, 
+# but the input genes vec only includes a subset of the genes of these pathways. I 
+# chnaged this to have a set of 1 as min size. 
+
+hu_pths <- hu_kegg_objct %>% 
+  map(as.data.frame) %>% 
+  rbind_named_df_list(., "coefficient")
+hu_pths$coefficient <- factor(hu_pths$coefficient, levels = hu_coefs)
+names(hu_pths)[2] <- "name"
+hu_pths$Description <- NULL
+hu_pths <- left_join(hu_pths, pth_data) %>% relocate(ID, Description, .after=name)
+
+lamps_kegg_objct <- split(lamps_res, lamps_res$coefficient) %>% 
+  map(function(x){
+    x <-  x$t %>% 
+      setNames(., x$entrezgene) %>% 
+      sort(., decreasing = TRUE)
+    GSEA(x, TERM2GENE = cp_kegg, pvalueCutoff = 1, minGSSize=1) 
+  }) 
+
+lamps_pths <- lamps_kegg_objct %>% 
+  map(as.data.frame) %>% 
+  rbind_named_df_list(., "coefficient")
+
+lamps_pths$coefficient <- factor(lamps_pths$coefficient, levels(lamps_res$coefficient))
+names(lamps_pths)[2] <- "name"
+lamps_pths$Description <- NULL
+lamps_pths <- left_join(lamps_pths, pth_data) %>% relocate(ID, Description, .after=name)
+
+tmp_out <- lamps_pths %>% filter(p.adjust < .05)
+# write_csv(tmp_out, file = "Data_file_S9_LAMPS_pathways.csv")
+
+# save(hu_pths, hu_kegg_objct, lamps_pths, lamps_kegg_objct, file = "NAFLD_model/msig_gsea_pathway_results_09-07-21.RData")
+
+load("NAFLD_model/msig_gsea_pathway_results_09-07-21.RData")
+cols_to_keep <- c("coefficient","ID","Description","NES", "p.adjust")
+
+hu_pths_tmp <- hu_pths %>% 
+  arrange(coefficient) %>% 
+  filter(p.adjust < .05) %>% 
+  select(cols_to_keep) %>% 
+  mutate(hum_sign=sign(NES),  num_coef=as.numeric(coefficient)) %>% 
+  select(-NES, -p.adjust)
+
+lamps_pths_tmp <- lamps_pths %>%
+  arrange(coefficient) %>% 
+  filter(p.adjust < .05) %>% 
+  select(cols_to_keep) %>% 
+  mutate(lamps_sign=sign(NES), num_coef=as.numeric(coefficient)) %>% 
+  select(-NES, -p.adjust)
+
+
+pth_overlap <- 
+  inner_join(lamps_pths_tmp[,-1], hu_pths_tmp[,-1]) %>% 
+  relocate(num_coef) 
+pth_overlap$sgn_prd <- pth_overlap$lamps_sign * pth_overlap$hum_sign
+# saveRDS(pth_overlap,file = "NAFLD_model/msig_lamps_human_overlap_pths_09-07-21.rds")
+
+cncdnt_pths <- pth_overlap %>% filter(sgn_prd > 0)
+disc_pths <- pth_overlap %>% filter(sgn_prd < 0)
+
+```
+
+#### Venn Diagrams {#path_concordance}
+```{r}
+library(eulerr)
+
+hu_pth_list <- hu_pths_tmp %>% 
+  split(., .$num_coef) %>% 
+  map(function(x){
+    unique(x$ID)
+  })
+
+lamps_pth_list <- lamps_pths_tmp %>%    
+  split(., .$num_coef) %>% 
+  map(function(x){
+    unique(x$ID)
+  })
+
+out_list <- 1:3 %>% 
+  map(function(i){
+    tmp_list <- list(hu_pth_list[[i]], lamps_pth_list[[i]])
+    tmp_nms <- coef_map[i,2:3] %>% unlist %>% as.character
+    names(tmp_list) <- tmp_nms
+    # Reverses order so LAMPS comes first
+    tmp_list <- rev(tmp_list)
+    return(tmp_list)
+  })
+
+plot_list <- out_list %>% 
+  map(function(x){
+    euler(x) %>% 
+      plot(., quantities = list(cex = 1.125), labels = FALSE, adjust_labels=TRUE)
+      # plot(., quantities = list(cex = 1.125), labels = list(cex = 1.25), adjust_labels=TRUE)
+  })
+
+for(i in 1:3){
+
+  # fn <- paste0("./figures/msig_kegg_venn_comparison_", i, "_09-08-21.png")
+  png(fn, width = 2.5, height = 2.5, units = "in", res=500)
+  print(plot_list[[i]])
+  dev.off()
+}
+
+ol <-1:3 %>%  map_dbl(function(i){
+    overlap_ratio(hu_pth_list[[i]], lamps_pth_list[[i]])
+})
+
+sum_tbl <-  pth_overlap %>% group_by(num_coef) %>% summarise(cnc_cnt=sum(sgn_prd == 1), dsc_cnt=sum(sgn_prd == -1)) %>%   mutate(total=cnc_cnt + dsc_cnt)
+
+sum_tbl$prct_cnc <-  sum_tbl$cnc_cnt/(sum_tbl$cnc_cnt + sum_tbl$dsc_cnt)
+sum_tbl$prct_dsc <- 1 - sum_tbl$prct_cnc
+
+
+
+
+
+```
+
+### Machine learning {#mlenet}
+
+```{r}
+library(matrixStats)
+library(sva)
+library(glmnet)
+
+n_genes <- 7500
+nfolds <- 20
+
+v <-  
+  read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
+svobj <- 
+  read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[2]]
+p <- v$targets
+x_0 <- v$E
+x_0 <- x_0[order(rowVars(x_0), decreasing = TRUE)[1:n_genes],]
+
+lamps_v <- read_rds("NAFLD_model/lamps_nafld_qn_voom_07-08-21.rds") 
+
+y_0 <- lamps_v$E
+y_0 <- y_0[order(rowVars(y_0), decreasing = TRUE)[1:n_genes],]
+
+
+genes_to_keep <- intersect(row.names(y_0), row.names(x_0))
+y_0 <- y_0[genes_to_keep,]
+mod <- delutils::better_model_matrix(~0 + treatment, data=lamps_v$targets)
+mod0 <- model.matrix(~1, data=lamps_v$targets)
+lamps_svobj <- sva(y_0, mod, mod0)
+y_0 <-  removeBatchEffect(y_0, covariates = lamps_svobj$sv, design = mod)
+mod <- delutils::better_model_matrix(~treatment, data=lamps_v$targets)
+
+x_0 <- x_0[genes_to_keep,]
+
+
+
+mlenet <- cv.glmnet(scale(t(x_0)),
+                        p$group,
+                        statndardize=FALSE,
+                        family = "multinomial",
+                        type.multinomial = "grouped",
+                        alpha = .95,
+                        nfolds = nfolds, 
+                        intercept = FALSE)
+# saveRDS(mlenet, "NAFLD_model/mlenet_model.rds")
+table(lamps_v$targets$treatment, predict(mlenet, scale(t(y_0)), type="class", s=mlenet$lambda.1se, exact=TRUE))
+
+
+
+
+
+```
+
+
+
+
+
+
+
+# Results {#Results}
 ## Figures 
 ### Figure 2: Heatmap 
 
@@ -851,16 +1927,16 @@ with open("network_proximity_results_03-27-21.csv", "w+") as f:
 
 library(ComplexHeatmap)
 
-load("data_raw/data_for_figure2_heatmap.RData")
+load("data_for_figure2_heatmap.RData")
 
 
 col_tits <- 
-  c("Normal &\nSteatosis\n(N&S)",
+  c("Normal &\nSteatosis\n(PN&S)",
     "Predominately\nLobular\nInflammation\n(PLI)",
     "Predominately\nFibrosis\n(PF)")
 cluster_colors <- c("#6a3d9a","#ff7f00", "#b15928")
 
-v <-  read_rds('data_raw/DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
+v <-  read_rds('DiStefano_diagnosis_n182_voom_qn_and_svobj.rds')[[1]]
 p <-  v$targets
 
 cols_to_keep <- c("diagnosis", "bmi_surg", "sex", "age","icd_250")
@@ -897,7 +1973,7 @@ bmi <- anno_barplot(annot_map['Bmi_surg'],
                                       at=c(30, 90 ),
                                       gp=gpar(fontsize = 4.5, fontface='bold')))
 
-#TODO fix missing ha section 07/08/21
+
 tmp_ht <-
   Heatmap(tmp_data, 
           # Column args
@@ -945,10 +2021,10 @@ ht_width <-
 
 
 
-pdf(file = "figure2_heatmap.pdf",
-    height = ht_height,
-    width = ht_width,
-    bg = "transparent")
+# pdf(file = "figure2_heatmap.pdf",
+#     height = ht_height,
+#     width = ht_width,
+#     bg = "transparent")
 # draw(tmp_ht, heatmap_legend_side="bottom")
 draw(tmp_ht, show_annotation_legend = FALSE, show_heatmap_legend=FALSE)
 dev.off()
@@ -960,7 +2036,7 @@ dev.off()
 ### Figure 3: Pathway summaries 
 ```{r}
 sig_pth_res <- 
-  read_rds("data_raw/lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
+  read_rds("clust_gsva_path_res.rds") %>% 
   filter(adj.P.Val < .001)
 coef_nms <- c("PLI vs. N&S", "PF vs. N&S", "PF vs. PLI" ) %>% 
   setNames(.,unique(sig_pth_res$coefficient))
@@ -968,7 +2044,7 @@ coef_nms <- c("PLI vs. N&S", "PF vs. N&S", "PF vs. PLI" ) %>%
 sig_pth_res$coefficient <- factor(coef_nms[sig_pth_res$coefficient], levels = coef_nms)
 
 cat_pths <- 
-  read_delim("data_raw/NAFLD_progression2path_03-09-2021.txt", 
+  read_delim("NAFLD_progression2path_03-09-2021.txt", 
              "\t",
              col_names = FALSE) %>% 
   set_names(., c("disease_category", "id"))
@@ -1033,7 +2109,7 @@ plt <-  ggplot(data=plot_data, aes(x=pathway_category, y=cnt)) +
   coord_flip()
 
 plt <- plt + geom_text(aes(x=pathway_category, y=cnt, label=prct),size=3.5, hjust = -.075) + labs(y="Number of differentially enriched pathways")
-ggsave("updated_fig3_pathway_summary.pdf",plt, height = 4.5, width = 8.75)
+# ggsave("updated_fig3_pathway_summary.pdf",plt, height = 4.5, width = 8.75)
 
 ```
 
@@ -1059,7 +2135,7 @@ plot_data <- pth_data %>%
 plot_data <- plot_data %>%
   group_by(comparison) %>% 
   arrange(desc(pathway_neg_log10_pval), .by_group=FALSE) %>% 
-  slice(1:10) %>% 
+  dplyr::slice(1:10) %>% 
   ungroup
 
 plot_data$comparison <- factor(plot_data$comparison, 
@@ -1091,7 +2167,7 @@ plt <-  ggplot(data=plot_data, aes(x=tmp_pth_name,
 
 plt$labels$fill <-  ""
 plt <- plt  + theme(legend.title = element_text(face="bold"), legend.text = element_text(face="bold"))
-ggsave("log2fc_legend_for_top10_pathways.pdf", get_legend(plt), width = .75, height = 1.5)
+# ggsave("log2fc_legend_for_top10_pathways.pdf", get_legend(plt), width = .75, height = 1.5)
 
 
 plt <- plt + 
@@ -1104,7 +2180,7 @@ plt <- plt +
         axis.title.y = element_blank(), 
         text=element_text(face="bold")) 
 
-ggsave("top_pathways_bar_plot.pdf", aligned_plots[[1]], height = 6.5, width = 7)
+# ggsave("top_pathways_bar_plot.pdf", aligned_plots[[1]], height = 6.5, width = 7)
 
 ```
 
@@ -1184,28 +2260,398 @@ ggsave("disease_category_grid_plot.pdf", aligned_plots[[2]], height = 6.5, width
 
 
 ```
+
+### Figure S1: Pathway summaries for the clinical labels 
+
+```{r}
+
+
+sig_pth_res <- 
+  read_rds("clin_gsva_path_res.rds") %>% 
+  filter(adj.P.Val < .001)
+
+cat_pths <- 
+  read_delim("NAFLD_progression2path_01-14-2022.txt", 
+             "\t",
+             col_names = FALSE) %>% 
+  set_names(., c("disease_category", "id"))
+
+
+
+sig_pth_res <- left_join(sig_pth_res, cat_pths)
+levels(sig_pth_res$coefficient) <- c("Lob vs N&S", "Fib vs N&S", "Fib vs Lob")
+
+
+
+
+pth_map <-  
+  read_delim("pth_map.txt", ";", col_names = FALSE) %>% 
+  setNames(., c("nafld_category", "disease_category")) 
+
+```
+
+#### Top panel
+```{r}
+library(scales)
+library(cowplot)
+
+
+
+plot_data <- sig_pth_res %>% 
+  select(coefficient, name, category_level_1) %>%
+  distinct %>%
+  group_by(coefficient, category_level_1) %>% 
+  summarise(cnt=n()) %>% 
+  mutate(prct=cnt/sum(cnt)) %>% 
+  ungroup %>% 
+  mutate(category_categorization="KEGG Groups")
+names(plot_data)[2] <- "pathway_category"
+
+
+plot_data2 <- sig_pth_res %>% 
+  select(coefficient, name, disease_category) %>% 
+  distinct %>% 
+  group_by(coefficient, disease_category) %>% 
+  summarise(cnt=n()) %>% 
+  mutate(prct=cnt/sum(cnt)) %>% 
+  ungroup %>% 
+  mutate(category_categorization="NAFLD Categories")
+names(plot_data2)[2] <- "pathway_category"
+plot_data2$pathway_category <- pth_map$disease_category[plot_data2$pathway_category]
+
+
+plot_data <- rbind(plot_data, plot_data2)
+rm(plot_data2)
+plot_data$category_categorization <- 
+  factor(plot_data$category_categorization, levels = c("KEGG Groups", "NAFLD Categories"))
+lvls <- c(sort(unique(sig_pth_res$category_level_1)), pth_map$disease_category) %>% rev
+lvls <- c(sort(unique(sig_pth_res$category_level_1)), c(pth_map$disease_category, "Uncharacterized")) %>% rev
+
+plot_data$pathway_category <- factor(plot_data$pathway_category, levels=lvls)
+
+
+plot_data$prct <- label_percent(accuracy = .1)(plot_data$prct)
+
+
+plt <-  ggplot(data=plot_data, aes(x=pathway_category, y=cnt)) + 
+  geom_bar(stat='identity',aes(fill=category_categorization))  + 
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1),
+        text=element_text(face="bold"),
+        axis.title.y = element_blank(), 
+        axis.title.x = element_text(face="bold", size=12, colour="black"),
+        axis.text = element_text(face="bold", size=12, colour="black"),
+        aspect.ratio = 1,
+        strip.text = element_text(size =12),
+        panel.spacing = unit(.5, "lines"),
+        legend.position = "none") + 
+  facet_grid(category_categorization ~ coefficient    , scales = "free_y") +
+
+  scale_y_continuous(limits=c(0, 56),expand=c(0,0)) + # 02/22/22 kludge to make same scale as prev version of fig
+  coord_flip()
+
+plt <- plt + geom_text(aes(x=pathway_category, y=cnt, label=prct),size=3.5, hjust = -.075) + labs(y="Number of differentially enriched pathways")
+
+
+plt <- set_panel_size(plt, height = unit(4,"cm"), width = unit(5,"cm"))  
+
+# ggsave("clinical_rowscaled_fig3_pathway_summary_03-03-22.png", plt, height = 4.5, width = 12, dpi=600)
+
+```
+
+#### Top 10 pathway bar charts
+
+```{r}
+library(readr)
+library(cowplot)
+
+
+
+
+plot_data <- sig_pth_res %>% 
+  filter(disease_category %in% 1:4) %>% 
+  select(-disease_category) %>% 
+  mutate(pathway_neg_log10_pval=-log(adj.P.Val)) %>% 
+  distinct
+  
+
+plot_data <- plot_data %>%
+  group_by(coefficient) %>% 
+  arrange(desc(pathway_neg_log10_pval), .by_group=FALSE) %>% 
+  dplyr::slice(1:10) %>% 
+  ungroup
+
+
+plot_data <- plot_data %>% arrange(coefficient, pathway_neg_log10_pval, abs(logFC)) # updated 02/22/22 to add additional sort by NES
+
+plot_data$tmp_pth_name <- 
+  paste(plot_data$coefficient, plot_data$description, sep="_") %>% 
+  factor(., levels = .)
+
+plot_data$fill_factor <- factor(if_else(plot_data$logFC < 0, 1, 2))
+
+plt <-  ggplot(data=plot_data, aes(x=tmp_pth_name, 
+                                   y=pathway_neg_log10_pval,
+                                   fill=logFC)) + 
+  geom_bar(stat="identity") + 
+  coord_flip() +
+  facet_wrap(~coefficient, nrow=3, scales = "free_y") +
+  scale_x_discrete(label=function(x){
+    x %>% 
+      str_split(., '_') %>% 
+      map_chr(2)
+  }) + 
+  scale_fill_gradient2(low = "blue",mid = "white", high = "red", limits=c(-2,2))
+  scale_y_continuous(limits=c(0, 60)) # updated 02/22/22 to make limits same as in prev fig
+
+
+plt$labels$fill <-  ""
+plt <- plt  + theme(legend.title = element_text(face="bold"), legend.text = element_text(face="bold"))
+# ggsave("clin_label_gsea_nes_legend_for_top10_pathways.png", get_legend(plt), width = .75, height = 1.5, dpi=600)
+
+
+plt <- plt + 
+  guides(fill=FALSE) + 
+  theme_cowplot() +
+  theme(legend.position = "none",
+        plot.margin = unit(c(0, 0, 0, 0), "cm"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(), 
+        text=element_text(face="bold")) 
+
+
+
+```
+
+#### Creating a grid with the categories
+```{r}
+library(settleR)
+library(reshape2)
+cat_list <- sig_pth_res %>% 
+  select(disease_category, name) %>% 
+  distinct %>% 
+  filter(disease_category %in% 1:4)
+
+
+cat_list <- split(cat_list, cat_list$name) %>% 
+  map(function(x) paste0("C", unique(x$disease_category)))
+
+cat_mat <- sets_to_matrix(cat_list) 
+cat_mat[cat_mat == 0] <- NA
+cat_mat <- melt(cat_mat) %>% na.omit
+cat_mat <- cat_mat[,-3]
+names(cat_mat) <- c("disease_category", "name")
+
+plot_data <- left_join(plot_data, cat_mat)
+
+grid_data <-  plot_data %>% 
+    split(., .$tmp_pth_name) %>% 
+    map(function(x) as.character(x$disease_category)) %>% 
+    sets_to_matrix(.) 
+grid_data <- grid_data[sort(row.names(grid_data)),] %>% melt %>% 
+    setNames(., c("intersect_id","set_names","observed"))
+grid_data$observed <- as.logical(grid_data$observed) 
+
+grid_data$coefficient <- str_split(grid_data$set_names, '_') %>% map_chr(1) 
+grid_data$coefficient <- factor(grid_data$coefficient, levels = levels(plot_data$coefficient))
+
+
+v_max <- max(1, length(unique(grid_data$intersect_id)) -1)
+v_breaks <- seq(1, v_max, by = 1)+ .5
+h_max <- max(1, length(unique(grid_data$set_names)) - 1)
+h_breaks <- seq(1, h_max, by = 1)+ .5
+
+dot_size <- 4.25
+
+p <-  ggplot(data=grid_data, aes(x=intersect_id, y=set_names)) +
+  geom_point(size=dot_size, alpha=.25) +
+  theme_empty()
+# just plots empty dots
+
+
+p <- p +
+  geom_point(data=grid_data[grid_data$observed,], # Add `filled in points`
+             aes(x=intersect_id, y=set_names),
+             size=dot_size,
+             inherit.aes = FALSE)
+p <- p + theme(axis.text.y = element_blank(),
+               plot.margin = unit(c(0, 0, 0, 0), "cm")) +
+  geom_vline(xintercept = v_breaks) +
+  geom_hline(yintercept = h_breaks)
+
+p <-  p + facet_wrap(~coefficient, nrow=3, scales = "free_y")
+
+
+
+out_plt <- plot_grid(plt, NULL, p, rel_widths = c(7.5, .1, 1.5), align = "h", axis='t', nrow = 1)
+
+
+
+tmp_plt <- set_panel_size(plt, height = unit(4.5,"cm"), width = unit(6,"cm"))
+# ggsave("clinical_scaled_gsva_logfc_bar_top10_pathways_03-03-22.png", tmp_plt, width = 8, height = 6.5, dpi=600)
+
+tmp_plt <- set_panel_size(p, height = unit(4.5,"cm"), width = unit(3.5,"cm"))
+# ggsave("clinical_scaled_gsva_logfc_grid_top10_pathways_03-03-22.png", tmp_plt, width = 1.25, height = 6.5, dpi=600)
+
+```
+
+### Figure S2: Venn diagrams clinical vs cluster label pathways
+```{r}
+
+library(eulerr)
+
+clust_tmp <- read_rds("clust_gsva_path_res.rds")
+clust_tmp$coefficient <- factor(clust_tmp$coefficient)
+clust_tmp <- clust_tmp %>% 
+  filter(adj.P.Val < .001) %>% 
+  mutate(sig_idx=as.numeric(coefficient)) %>% 
+  select(sig_idx, name) %>% 
+  split(., .$sig_idx) %>% 
+  map(function(x){
+    unique(x$name)
+  })
+
+
+
+clin_tmp <- read_rds("clin_gsva_path_res.rds") %>% 
+  filter(adj.P.Val < .001) %>% 
+  mutate(sig_idx=as.numeric(coefficient)) %>% 
+  select(sig_idx, name) %>% 
+  split(., .$sig_idx) %>% 
+  map(function(x){
+    unique(x$name)
+  })
+
+
+out_list <- 1:3 %>% 
+  map(function(i){
+    tmp_list <- list(clust_tmp[[i]], clin_tmp[[i]])
+    tmp_nms <- coef_tbl[i,2:3] %>% unlist %>% as.character
+    # Euler doesn't work with names that have &
+    # so going to that by hand 
+    names(tmp_list) <- c("clust", "clin")
+    
+    # tmp_list <- rev(tmp_list)
+    return(tmp_list)
+  })
+
+plot_list <- out_list %>% 
+  map(function(x){
+    euler(x) %>% 
+      plot(., quantities = list(cex = 1.125), labels = FALSE, adjust_labels=TRUE)
+      # plot(., quantities = list(cex = 1.125), labels = list(cex = 1.25), adjust_labels=TRUE)
+  })
+
+for(i in 1:3){
+  
+  # fn <- paste0("msig_kegg_clust_v_clin_comparisons_", i, "_03-03-22.png")
+  png(fn, width = 2.5, height = 2.5, units = "in", res=500)
+  print(plot_list[[i]])
+  dev.off()
+}
+
+```
+
+### Figure S3: Concordance analysis of pathways vs microarray 
+See the [Microarray meta-analysis section](#micro) 
+
+### Figure 4
+See the [Machine learning section](#mlenet) 
+
+### Figure S5 
+See the [Pathway concordance section]({#path_concordance})
+
+### Figure S6
+
+```{r}
+library(igraph)
+library(visNetwork)
+
+biosnap <- read_rds("PPT-Ohmnet_edgelist_liver.rds")
+
+bsp_genes <- do.call(c, biosnap[,1:2]) %>% unique
+
+nafld_associated_pths <- 
+  c("Non-alcoholic fatty liver disease (NAFLD)",
+    "TNF signaling pathway", 
+    "Insulin signaling pathway",
+    "Type II diabetes mellitus", 
+    "PI3K-Akt signaling pathway",
+    "Adipocytokine signaling pathway", 
+    "PPAR signaling pathway",
+    "Fatty acid biosynthesis",
+    "Protein processing in endoplasmic reticulum",
+    "Oxidative phosphorylation",
+    "Apoptosis") 
+
+kegg_data <- read_rds("kegg_pathway_entrezgene.rds") %>% 
+  setNames(., c("id", "entrezgene"))
+kegg_data <- left_join(kegg_data, read_rds("kegg_pathway_hierarchy.rds"))
+
+gene_res <- read_rds("clust_gene_res.rds") %>% 
+  filter(adj.P.Val < .001)
+
+nap_genes <- kegg_data %>% 
+  filter(description %in% nafld_associated_pths) %>% 
+  pull(entrezgene) %>% 
+  unique()
+
+
+
+degs_to_keep <- gene_res %>% filter(entrezgene %in% nap_genes) %>% pull(entrezgene) %>% unique() %>% as.character
+degs_to_keep <- degs_to_keep[degs_to_keep %in% bsp_genes]
+
+mapped_degs <- degs_to_keep[degs_to_keep %in% bsp_genes]
+
+g <- 
+  graph_from_data_frame(biosnap, directed = FALSE)
+
+nds_to_remove <- !V(g)$name %in% mapped_degs
+g_filt <- delete_vertices(g, nds_to_remove)
+g_filt <- simplify(g_filt)
+
+
+xx <- as.data.frame(org.Hs.eg.db::org.Hs.egSYMBOL) %>% 
+  as.data.frame %>% 
+  setNames(., c("entrezgene", "gene_name"))
+
+n <- V(g_filt)$name %>% data.frame(id=.)
+n$label <-  xx$gene_name[match(n$id, xx$entrezgene)]
+
+e <- as_edgelist(g_filt) %>% as.data.frame %>% setNames(., c("from", "to"))
+
+vnet <-  visNetwork(n,e) %>% 
+  visIgraphLayout() %>% 
+  visOptions(highlightNearest = list(enabled = T, degree = 1, hover = T)) 
+# visSave(vnet, file = "network.html")
+
+
+```
+
+### Figure S7
+See 
+
 ## Tables 
-### Table S2
+### Table S3
 ```{r}
 library(flextable)
 library(officer)
-#TODO Refactor so this all uses the data files 
+
 sig_pth_res <- 
-  read_rds("data_raw/lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
+  read_rds("clust_gsva_path_res.rds") %>% 
   filter(adj.P.Val < .001)
 coef_nms <- c("PLI vs. N&S", "PF vs. N&S", "PF vs. PLI" ) %>% 
   setNames(.,unique(sig_pth_res$coefficient))
 
 sig_pth_res$coefficient <- factor(coef_nms[sig_pth_res$coefficient], levels = coef_nms)
 
-#TODO Refactor this bit 
+
 cat_pths <- 
-  read_delim("data_raw/NAFLD_progression2path_03-09-2021.txt", "\t", col_names = FALSE) %>% 
+  read_delim("NAFLD_progression2path_03-09-2021.txt", "\t", col_names = FALSE) %>% 
   set_names(., c("nafld_category", "id"))
 
-#TODO Refactor this bit 
+
 pth_map <- 
-  read_delim("data_raw/fens_categories.txt", ";", col_names = FALSE) %>% 
+  read_delim("pth_map.txt", ";", col_names = FALSE) %>% 
   setNames(., c("nafld_category", "disease_category"))
 
 cat_pths <- left_join(cat_pths, pth_map)
@@ -1224,9 +2670,9 @@ names(nafld_category)[2] <- "nafld_categories"
 
 sig_pth_res <- left_join(sig_pth_res, nafld_category)
 
-#TODO File needs to be included somehow
+
 pth_refs <- 
-  read_excel("data_raw/pth_refs.xlsx", sheet = 1)
+  read_excel("pth_refs.xlsx", sheet = 1)
 pth_refs <- pth_refs[,c(2,3)]
 
 pth_refs <-  split(pth_refs, pth_refs$pathway_id) %>% 
@@ -1268,22 +2714,161 @@ split_tbls <- split(tbl_data, tbl_data$coefficient) %>%
 
 ```
 
-## Data files 
-### Data file S1
+### Tablse S5
+
 ```{r}
 
-hier_kegg <- 
-  read_rds('data_raw/kegg_pathway_hierarchy.rds')
+top_n_drugs <- 25
 
-#TODO refactor here 
+best_score <- read_rds("cluster_sigs_cmap_lincs17_pert_sums.rds")[["best_score"]]
+
+tgts <- 
+  read_rds("drugbank_db_metadata_v5.1.4.rds") %>% 
+  select(drugbank_id, targets)
+
+
+best_score <- left_join(best_score, tgts)  %>% mutate(out_name=paste0(pert_iname, " (", drugbank_id, ")"))
+
+
+pth_cats <-  
+  c("Insulin Resistance and Oxidative Stress",
+    "Cell Stress, Apoptosis and Lipotoxicity",
+    "Inflammation",
+    "Fibrosis")
+
+
+sig_map <- tibble(sig_idx=1:12, path_cats=rep(pth_cats, 3))
+sig_map$gs_name <- paste0("s", sig_map$sig_idx, ": ", sig_map$path_cats)
+sig_map$path_cats <- NULL
+
+best_score <- right_join(sig_map, best_score) 
+pert_score <- right_join(sig_map, pert_score)
+
+tmp1 <- best_score %>% 
+  filter(drug_idx <= 20) %>% 
+  group_by(pert_iname, out_name, targets) %>% 
+  # group_by(pert_iname) %>% 
+  arrange(drug_idx, .by_group = TRUE) %>% 
+  summarise(ordered_gene_sig=paste(gs_name, collapse = "\n")) %>% 
+  ungroup
+
+best_score_table <- best_score_top20(best_score)[1:top_n_drugs,] %>% 
+  left_join(., tmp1) %>% 
+  select(-pert_iname) %>% 
+  relocate(out_name) %>% 
+  relocate(targets, .after=ordered_gene_sig)
+best_score_table <- best_score_table %>% arrange(desc(freq), desc(unique_inst))
+
+names(best_score_table) <- c("Drug name (DrugBank ID)",
+                             "Gene signature-query frequency",
+                             "Unique instances",
+                             "Gene signature indices (see Table S4) and their disease categorization",	
+                             "Canonical targets")
+
+tb1 <-  make_flextable(best_score_table) %>% 
+  border_inner(fp_border(color="gray")) %>%
+  fix_border_issues %>% 
+  fontsize(., size = 9, part = "all") %>% 
+  set_caption(., "Best score") %>% 
+  width(., 1:5, 1)
+
+
+docx <- read_docx() %>% 
+  body_add_flextable(., tb1) %>% 
+  body_add_flextable(., tb2)
+# print(docx, target = "cluster_signatures_lincs2017_w_sigs_02-05-22_.docx")
+
+
+
+```
+
+### Table 1 
+```{r}
+
+top_n_drugs <- 25
+fn <- "cluster_sigs_cmap_lincs20_pert_sums.rds"
+pert_score <- read_rds(fn)[["prct_67th_score"]]
+
+
+pth_cats <-  
+  c("Insulin Resistance and Oxidative Stress",
+    "Cell Stress, Apoptosis and Lipotoxicity",
+    "Inflammation",
+    "Fibrosis")
+
+
+sig_map <- tibble(sig_idx=1:12, path_cats=rep(pth_cats, 3))
+sig_map$gs_name <- paste0("s", sig_map$sig_idx, ": ", sig_map$path_cats)
+sig_map$path_cats <- NULL
+
+
+pert_score <- right_join(sig_map, pert_score)
+
+
+
+pert_score <- left_join(pert_score, tgts) %>% mutate(out_name=paste0(pert_iname, " (", drugbank_id, ")")) 
+
+pth_cats <-  
+  c("Insulin Resistance and Oxidative Stress",
+    "Cell Stress, Apoptosis and Lipotoxicity",
+    "Inflammation",
+    "Fibrosis")
+
+
+sig_map <- tibble(sig_idx=1:12, path_cats=rep(pth_cats, 3))
+sig_map$gs_name <- paste0("s", sig_map$sig_idx, ": ", sig_map$path_cats)
+sig_map$path_cats <- NULL
+
+
+pert_score <- right_join(sig_map, pert_score)
+
+
+
+lincs_top20_table <- lincs2017_score_top20(pert_score)[1:top_n_drugs,] %>% 
+  left_join(., tmp2) %>% 
+  select(-pert_iname) %>% 
+  relocate(out_name) %>% 
+  relocate(targets, .after=ordered_gene_sig)
+
+names(lincs_top20_table)  <- c("Drug name (DrugBank ID)",
+                               "Gene signature-query frequency",
+                               "Gene signature indices (see Table S4) and their disease categorization",	
+                               "Canonical targets")
+
+
+tb2 <- make_flextable(lincs_top20_table) %>% 
+  border_inner(fp_border(color="gray")) %>%
+  fix_border_issues %>% 
+  fontsize(., size = 9, part = "all") %>% 
+  set_caption(., "LINCS percentile Score") %>% 
+  width(., 1:4, 1)
+
+docx <- read_docx() %>% 
+  body_add_flextable(., tb2)
+# print(docx, target = "clust_signatures_lincs2020_w_sigs_02-22-22_.docx")
+
+```
+
+
+
+## Data files 
+### Data file S1
+
+```{r}
+
+
+hier_kegg <- 
+    read_rds('kegg_pathway_hierarchy.rds')
+
+
 cat_pths <- 
-  read_delim("data_raw/NAFLD_progression2path_03-09-2021.txt", 
+  read_delim("NAFLD_progression2path_03-09-2021.txt", 
              "\t",
              col_names = FALSE) %>% 
   set_names(., c("nafld_category", "id"))
 
 pth_map <- 
-  read_delim("data_raw/fens_categories.txt", ";", col_names = FALSE) %>% 
+  read_delim("pth_map.txt", ";", col_names = FALSE) %>% 
   setNames(., c("nafld_category", "disease_category"))
 
 cat_pths <- left_join(cat_pths, pth_map)
@@ -1291,7 +2876,7 @@ cat_pths$nafld_category <- NULL
 
 
 kegg_df <- 
-  read_rds("data_raw/c2_kegg_entrez_msigdb_v7.0_database.rds") %>% 
+  read_rds("c2_kegg_entrez_msigdb_v7.0_database.rds") %>% 
   right_join(., cat_pths) %>% 
   separate_rows(., entrezgene, sep = '\\|')
 
@@ -1310,8 +2895,15 @@ adj_p_val_thresh <- .05
 
 cols_to_remove <- 
   c("gene_biotype","description")
-gene_res <- read_rds('gene_res_from_clusters.rds') %>% select(-cols_to_remove)
-
+gene_res <- read_rds('clust_gene_res.rds') %>% select(-cols_to_remove)
+gene_res$coefficient <- factor(gene_res$coefficient)
+levels(gene_res$coefficient) <- c("PLI vs. PN&S", "PF vs. PN&S", "PF vs. PLI" )
+gene_res2 <- read_rds("clin_gene_res.rds")
+gene_res2$coefficient <- factor(gene_res2$coefficient, levels = unique(gene_res2$coefficient))
+levels(gene_res2$coefficient) <- c("Lob vs N&S", "Fib vs N&S", "Fib vs Lob" )
+cols_to_keep <- intersect(colnames(gene_res), colnames(gene_res2))
+gene_res <- rbind(gene_res[,cols_to_keep],
+                  gene_res2[,cols_to_keep])
 
 gene_res$entrezgene <- as.character(gene_res$entrezgene)
 
@@ -1322,37 +2914,46 @@ sig_gene_res <- left_join(sig_gene_res, per_gene_kegg)
 
 names(sig_gene_res)[1:4] <- c("comparison", "ensembl_id", "gene_symbol", "entrez_gene_id")
 
-clst_map <- 
-  c("PLI vs. N&S", "PF vs. N&S", "PF vs. PLI") %>% 
-  setNames(., unique(sig_gene_res$comparison))
-sig_gene_res$comparison <- unlist(clst_map[sig_gene_res$comparison])
+# clst_map <- 
+#   c("PLI vs. N&S", "PF vs. N&S", "PF vs. PLI") %>% 
+#   setNames(., unique(sig_gene_res$comparison))
+# sig_gene_res$comparison <- unlist(clst_map[sig_gene_res$comparison])
 sig_gene_res <- sig_gene_res %>% 
   relocate(gene_symbol, .before=ensembl_id) %>% 
   relocate(entrez_gene_id, .before=ensembl_id)
 
-# write_csv(sig_gene_res, file = "Data_file_S1_DEG_details.csv")
+# write_csv(sig_gene_res, file = "data_files/Data_file_S2_DEG_details.csv")
 
 ```
 
 ### Data file S2
+Updated 03/30/22 to include the clinical stuff
 ```{r}
 
 cols_to_remove <- c("name", "category_id")
 
 sig_pth_res <- 
-  read_rds("data_raw/lv_on_gsva_msig_kegg_pathways_from_row_scaled_clusters.rds") %>% 
+  read_rds("clust_gsva_path_res.rds") %>% 
   filter(adj.P.Val < .001) %>% 
   select(-cols_to_remove)
+sig_pth_res$coefficient <- factor(sig_pth_res$coefficient)
+levels(sig_pth_res$coefficient) <- c("PLI vs. PN&S", "PF vs. PN&S", "PF vs. PLI")
+
+clin_tmp <- read_rds("clin_gsva_path_res.rds") %>% 
+  filter(adj.P.Val < .001)
+clin_tmp <- clin_tmp[,colnames(sig_pth_res)]
+levels(clin_tmp$coefficient) <- c("Lob vs N&S", "Fib vs N&S", "Fib vs Lob" )
+sig_pth_res <- rbind(sig_pth_res, clin_tmp)
 
 sig_pth_res <- sig_pth_res %>% relocate(description, .before=id)
 names(sig_pth_res)[1:2] <- c("comparison", "pathway_name")
 
-sig_pth_res$comparison <- unlist(clst_map[sig_pth_res$comparison])
+# sig_pth_res$comparison <- unlist(clst_map[sig_pth_res$comparison])
 names(sig_pth_res)[4:5] <-  c("kegg_pathway_group", "kegg_pathway_subgroup")
 
 
 nafld_category <- 
-  read_delim("data_raw/NAFLD_progression2path_03-09-2021.txt", 
+  read_delim("NAFLD_progression2path_03-09-2021.txt", 
              "\t",
              col_names = FALSE) %>% 
   set_names(., c("nafld_categories", "id"))
@@ -1366,129 +2967,215 @@ nafld_category <- split(nafld_category, nafld_category$id) %>%
   }) %>% bind_rows
 sig_pth_res <- left_join(sig_pth_res, nafld_category)
 
-# write_csv(sig_pth_res, file = "Data_file_S2_Differentially_enriched_pathways.csv")
+
+# write_csv(sig_pth_res, file = "data_files/Data_file_S1_Differentially_enriched_pathways.csv")
 
 ```
 
 
 ### Data file S3
-03/31/21
+
+
 ```{r}
 
-load("data_raw/gene_signatures_03-18-21.RData")
 
 
-
-gene_sig <- 
-  unweighted_gene_sig 
-gene_sig$sig_idx <- paste0("S", gene_sig$sig_idx)
-gene_sig$fens_category <- paste0("C", gene_sig$fens_category)
-gene_sig$coefficient <-  factor(gene_sig$coefficient)
-levels(gene_sig$coefficient) <-  c("PLI vs. N&S","PF vs. N&S",  "PF vs. PLI")
+gene_sig <- read_rds("cluster_gene_signatures.rds")
+gene_sig$sig_idx <- 1:12
+levels(gene_sig$coefficient) <-  c("PLI vs. PN&S", "PF vs. PN&S", "PF vs. PLI")
+gene_sig$sig_idx <- paste0("s", gene_sig$sig_idx)
 names(gene_sig)[1:3] <- c("gene_sig_idx","comparison","nafld_pathway_category")
+
+
+
+gene_sig2 <- read_rds("clin_gene_signatures.rds")
+levels(gene_sig2$coefficient) <- c("Lob vs N&S", "Fib vs N&S", "Fib vs Lob" )
+gene_sig2$sig_idx <- paste0("s*", gene_sig2$sig_idx)
+names(gene_sig2)[1:3] <- c("gene_sig_idx","comparison","nafld_pathway_category")
+
+gene_sig <- rbind(gene_sig, gene_sig2)
+
+
+gene_sig$nafld_pathway_category <- paste0("C", gene_sig$nafld_pathway_category)
+
 
 
 xx <- as.data.frame(org.Hs.eg.db::org.Hs.egSYMBOL) %>%
   setNames(., c("entrezgene", "gene_name"))
 
-upreg_sig <- gene_sig %>% select(-down_genes_entrez) %>% separate_rows(up_genes_entrez, sep=";")
+upreg_sig <- gene_sig %>% select(-down_genes_entrez, -n_downreg) %>% separate_rows(up_genes_entrez, sep=";")
 names(upreg_sig)[4] <- "entrezgene"
 upreg_sig <- left_join(upreg_sig, xx) %>% 
-  group_by(sig_idx, comparison, nafld_pathway_category) %>% 
+  group_by(gene_sig_idx, comparison, nafld_pathway_category) %>% 
   summarise(`up-regulated_gene_names`=paste(unique(gene_name), collapse = ";"),
             `up-regulated_entrez_ids`=paste(unique(entrezgene), collapse = ";"))
 
-downreg_sig <- gene_sig %>% select(-up_genes_entrez) %>% separate_rows(down_genes_entrez, sep=";")
+downreg_sig <- gene_sig %>% select(-up_genes_entrez, -n_upreg) %>% separate_rows(down_genes_entrez, sep=";")
 names(downreg_sig)[4] <- "entrezgene"
 downreg_sig <- left_join(downreg_sig, xx) %>% 
-  group_by(sig_idx, comparison, nafld_pathway_category) %>% 
+  group_by(gene_sig_idx, comparison, nafld_pathway_category) %>% 
   summarise(`down-regulated_gene_names`=paste(unique(gene_name), collapse = ";"),
             `down-regulated_entrez_ids`=paste(unique(entrezgene), collapse = ";"))
 
 out_df <- left_join(upreg_sig, downreg_sig)
+out_df <-  out_df %>% arrange(comparison, nafld_pathway_category)
 # write_csv(out_df, "Data_file_S3_Gene_signatures.csv")
+
+
 
 ```
 
 
 
 ### Data file S4
+Updated 03/30/22
+Updated 04/11/22 to include results from all signatures
 
 ```{r}
 
 gene_sig_map <- 
-  read_csv("Data_file_S3_Gene_signatures.csv") %>% 
+  read_csv("data_files_03-30-22/Data_file_S3_Gene_signatures.csv") %>% 
   select(1:3)
+clust_sig_map <- gene_sig_map[1:12,] %>% mutate(sig_idx=1:12)
 
+clin_sig_map <- gene_sig_map[13:24,] %>% mutate(sig_idx=1:12)
+clust_res_l2017 <- read_rds("cluster_sigs_cmap_lincs17_res.rds") %>% 
+  right_join(clust_sig_map, .) %>% 
+  select(-sig_idx)
 
-cmap_res <- read_rds("unweighted_res_sub_w_p-values_03-22-21.rds")
-# Fixing some issues with p-values, since I didn't divide by 
-# length. 
-cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(p_value=p_value/max(p_value))
-cmap_res <-  cmap_res %>% group_by(sig_idx) %>% mutate(fdr_p_value=p.adjust(p_value, method = 'fdr'))
-names(cmap_res)[1] <- 'gene_sig_idx'
-cmap_res <- left_join(gene_sig_map, cmap_res)
+clin_res_l2017 <- read_rds("clinical_sigs_cmap_lincs17_res.rds") %>% 
+  right_join(clin_sig_map, .) %>% 
+  select(-sig_idx)
 
-drg_tgts <- read_rds("data_raw/drugbank_db_metadata_v5.1.4.rds") %>% select(drugbank_id, targets) %>% distinct %>% na.omit
+res_2017 <- rbind(clust_res_l2017, clin_res_l2017)
 
+clust_res_l2020 <- 
+  read_rds("cluster_sigs_cmap_lincs20_res.rds") %>% 
+  select(-up_genes, -down_genes) %>% 
+  right_join(clust_sig_map, .) %>% 
+  select(-sig_idx)
+
+clin_res_l2020 <- 
+  read_rds("clinical_sigs_cmap_lincs20_res.rds") %>% 
+  right_join(clin_sig_map, .) %>% 
+  select(-sig_idx)
+
+res_2020 <- rbind(clust_res_l2020, clin_res_l2020)
+res_2020 <- res_2020 %>% filter(!sig_id %in% res_2017$sig_id)
+rm(clin_res_l2017, clin_res_l2020, clust_res_l2017, clust_res_l2020)
 
 trt_cp <-
-  read_rds('../cmapAnalysis/GSE92742_inst_metadata.rds') %>% 
+  read_rds('GSE92742_inst_metadata.rds') %>% 
   filter(pert_type == "trt_cp") %>% 
-  select(sig_id, pert_id, pert_iname) %>% 
-  distinct 
+  select(sig_id, pert_id) %>% 
+  distinct %>% 
+  mutate(lincs_db=2017)
 
-annots <- read_rds("data_raw/GSE92742_perts_in_DrugBank_03-30-21.rds")
-trt_cp <- inner_join(trt_cp, annots)
+drg_tgts <- 
+  read_rds("drugbank_db_metadata_v5.1.4.rds") %>% 
+  select(drugbank_id, targets) %>% distinct %>% na.omit
 
-out_res <- cmap_res %>% filter(abs(cmap_score) > 0)
-out_res <- inner_join(trt_cp, out_res) %>%  relocate(gene_sig_idx, comparison, nafld_pathway_category)
-out_res <- out_res %>% 
-  group_by(gene_sig_idx) %>% 
-  arrange(cmap_score, .by_group=TRUE) %>% 
-  mutate(sig_rank=row_number()) %>% 
-  ungroup
-out_res <- left_join(out_res, drg_tgts)
-out_res <- out_res %>% select(-es_up, -es_down, -sig_rank)
-out_res <- out_res %>% relocate(targets, .after=name)
-# write_csv(out_res, "Data_file_S4_All_drugs.csv")
+annots <- read_rds("GSE92742_perts_in_DrugBank_03-30-21.rds")
+trt_cp <- inner_join(trt_cp, annots) %>% select(-name)
+
+drb_sigs <- 
+  read_rds("cmap2020_drubank_overlap_sig_info_01-24-22.rds") %>%
+  mutate(lincs_db=2020) %>% 
+  select(one_of(colnames(trt_cp))) %>% 
+  distinct()
+
+trt_cp <- rbind(drb_sigs, trt_cp) %>% distinct %>% 
+  group_by(sig_id) %>% 
+  mutate(lincs_db=paste(sort(unique(lincs_db)), collapse =  "|")) %>% 
+  left_join(trt_cp, drg_tgts) 
+
+
+out_res <- rbind(res_2017, res_2020) %>% 
+  inner_join(., trt_cp) %>% 
+  relocate(lincs_db, pert_id, pert_iname, drugbank_id, targets, .after = sig_id) %>% 
+  select(-es_up, -es_down,)
+
+
+# write_csv(out_res, "data_files_03-30-22/Data_file_S4_All_drugs.csv")
+# write_csv(out_res, "data_files_04-11-22/Data_file_S4_All_drugs.csv")
+
 
 ```
 
 ### Data file S5
+Updated 04/11/22 complete re-write 
 ```{r}
 
-fdr05_tbl <- read_rds('fdr05_tbl_top20_drugs.rds')
+tmp_files <- list.files(".", "_pert_sums")
+nms <- str_split(tmp_files, '_p') %>% map(1) %>% unlist %>% gsub('sig_', "", .) %>% gsub("lincs", "", .)
 
-names(fdr05_tbl)[4] <- "gene_sig_idx"
-cols_to_remove <- c("es_up","es_down" ,"sig_idx","fixed_drug_names"   )
-out_file <- fdr05_tbl %>% select(-one_of(cols_to_remove))
-out_file <- out_file %>% 
-  relocate(gene_sig_idx) %>%  
-  relocate(drugbank_id, name, .after=pert_iname) %>% 
-  relocate(nafld_pathway_category, .after=gene_sig_idx) %>% 
-  relocate(drug_idx, .after=name)
-names(out_file)[8] <- "drug_rank"
-out_file <- out_file %>% relocate(comparison, .after=gene_sig_idx)
-# write_csv(out_file, file = "Data_file_S5_CMap_prioritized_139_compounds.csv")
+gene_sig_map$signature_set <- NA
+gene_sig_map$signature_set[1:12] <- "clust"
+gene_sig_map$signature_set[13:24] <- "clin"
+gene_sig_map$sig_idx <- rep(1:12, 2)
+
+cols_to_keep <- c("signature_set",
+                  "lincs_db", 
+                  "sig_idx", 
+                  "pert_id", 
+                  "pert_sum_score", 
+                  "pert_iname",
+                  "drugbank_id",
+                  "drug_idx")
+
+lincs_score_out <- map(seq_along(tmp_files), function(idx){
+  x <- read_rds(paste0('./', tmp_files[[idx]]))[[2]] %>% 
+    group_by(sig_idx) %>% arrange(pert_sum_score, .by_group = TRUE) %>% slice(1:20)
+  cur_nm <- nms[idx] %>% str_split(., '_') %>% unlist
+  x <- cbind(signature_set=cur_nm[1], lincs_db=cur_nm[2], x)
+  x <- x[,cols_to_keep]
+  return(x)
+}) %>% bind_rows %>% 
+  mutate(summary_stat="prct_67th_score")
+
+best_score_out <- map(seq_along(tmp_files), function(idx){
+  x <- read_rds(paste0('./', tmp_files[[idx]]))[[1]] %>% 
+    group_by(sig_idx) %>% 
+    arrange(cmap_score, .by_group = TRUE) %>% 
+    slice(1:20) %>% 
+    ungroup %>% 
+    filter(fdr_p_value < .05) %>% 
+    rename(pert_sum_score = cmap_score) 
+    
+  cur_nm <- nms[idx] %>% str_split(., '_') %>% unlist
+  x <- cbind(signature_set=cur_nm[1], lincs_db=cur_nm[2], x)
+  x <- x[,cols_to_keep]
+  return(x)
+}) %>% bind_rows %>% 
+  mutate(summary_stat="best_score")
+
+out_file <- rbind(best_score_out, lincs_score_out) %>%  right_join(gene_sig_map, .) %>% select(-sig_idx, -signature_set)
+out_file <- out_file %>% relocate(summary_stat, .after = drugbank_id) %>% relocate(pert_sum_score, .after=drug_idx)
+
+# write_csv(out_file, file = "data_files_03-30-22/Data_file_S5_CMap_frequency_prioritized_compounds.csv")
 
 ```
 
 
 
-### Data file S6
+### Data file S7
 03/31/21
 ```{r}
 
-#TODO Need to add in the python code and 
 
-drug_list <- read_rds("manual_lincs_drugbank_drug_annots.rds")
-drug_list$drug_name <- drug_list$pert_iname
-drug_list$drug_name[str_detect(drug_list$pert_iname, "BR")] <- 
-  drug_list$name[str_detect(drug_list$pert_iname, "BR")]
+
+drug_list <- read_rds("cmap2020_pert_drugbank_overlap_01-18-22.rds")
+drug_list2 <- read_rds("GSE92742_perts_in_DrugBank_03-30-21.rds") %>% 
+  filter(!drugbank_id %in% drug_list$drugbank_id) %>% 
+  # filter(pert_id %in% drug_list$pert_id) %>% 
+  select(-name) %>% 
+  distinct
+names(drug_list2)[2] <- "drug_name"
+
+drug_list <- rbind(drug_list, drug_list2) %>% distinct
 
 network_res <- 
-  read_csv("../network_proximity/network_proximity_results_03-27-21.csv") %>% 
+  read_csv("network_proximity_results.csv") %>% 
   arrange(z)
 names(network_res)[1] <- "drug_name"
 network_res <- network_res %>% relocate(z, .after=drug_name)
@@ -1499,6 +3186,41 @@ tmp_drg_ids <- drug_list %>% select(drugbank_id, drug_name) %>% distinct
 network_res <- left_join(network_res, tmp_drg_ids)
 network_res <- network_res %>% relocate(drugbank_id, .after=drug_name)
 
-# write_csv(network_res, file="Data_file_S6_network_proximity_results.csv")
+# write_csv(network_res, file="Data_file_S7_network_proximity_results.csv")
 
 ```
+
+### Data file S8
+See the [LAMPS analysis section]({#lamps_degs})
+
+### Data file S9
+See the [LAMPS analysis section]({#lamps_degs})
+
+
+### Data file S10
+```{r}
+library(broom)
+library(glmnet)
+library(readxl)
+
+mlenet <- read_rds("NAFLD_model/mlenet_model.rds")
+
+
+feats <- tidy(mlenet$glmnet.fit) %>% 
+  filter(lambda == mlenet$lambda.1se) %>% 
+  filter(term != "")
+names(feats)[2] <- "ensembl_gene_id"
+
+load("gene_annots.RData")
+gene_annots <- gene_annots %>% rownames_to_column("ensembl_gene_id") %>% select(1,2,5)
+names(gene_annots)[2] <- "gene_name"
+
+feats <- left_join(feats, gene_annots)
+
+pmids <- read_excel("NAFLD_model/mlenet_feature_pmids.xlsx")
+feats <- left_join(feats, pmids)
+
+# write_csv(feats, "Data_file_S10_MLENet_features_n71.csv")
+
+```
+
